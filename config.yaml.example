@@ -1,0 +1,97 @@
+system:
+  name: StockMonitor - A股行情监测系统
+  version: 1.0.0
+  log_level: INFO
+  log_file: logs/system.log
+  data_dir: data
+market:
+  provider: akshare
+  request_interval: 0.5
+  max_retries: 2
+  timeout: 8
+  cache_ttl: 300
+llm:
+  api_key: ${LLM_API_KEY}
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-pro
+  temperature: 0.1
+  max_tokens: 4096
+  max_retries: 3
+strategy:
+  storage_dir: strategies
+  max_active: 10
+  timeout_seconds: 30
+symbols:
+  mode: specific
+  groups:
+    ETF:
+    - '588000'
+    - '159915'
+    - '513050'
+    股票:
+    - '688825'
+    - '601398'
+    - '601939'
+  blacklist: []
+trading:
+  initial_capital: 100000.0
+  commission_rate: 0.0001
+  min_lot_size: 100
+  slippage: 0.001
+  stamp_duty: 0.0
+  max_position_ratio: 0.3
+notification:
+  enabled: true
+  quiet_hours:
+    enabled: true
+    start: 23
+    end: 7
+  frequency:
+    min_interval_minutes: 10
+    max_per_hour: 0
+  history_retention: 500
+  channels:
+    wecom_bot:
+      enabled: false
+      name: 企业微信机器人
+      webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your-key
+    email:
+      enabled: true
+      name: 邮件推送
+      smtp_host: smtp.163.com
+      smtp_port: 465
+      username: your-email@163.com
+      password: your-smtp-auth-code
+      recipients:
+      - your-email@qq.com
+lof:
+  enabled: true
+  premium_threshold: 5.0
+  discount_threshold: -3.0
+  scan_interval_minutes: 5
+  filter_min_amount: 5000000
+  filter_subscribe_only: false
+  report:
+    enabled: true
+    schedule: '14:30'
+    recipient: your@email.com
+    top_n: 0
+web:
+  host: 0.0.0.0
+  port: 5000
+  password: admin123
+  secret_key: change-me-to-a-random-string
+scheduler:
+  interval_seconds: 600
+  idle_interval_seconds: 300
+  min_signal_strength: 0.3
+  trading_start: 09:30
+  trading_lunch_start: '11:30'
+  trading_lunch_end: '13:00'
+  trading_end: '15:00'
+market_timing:
+  enabled: true
+  benchmark: '510300'
+  ma_weak: 60
+  ma_bear: 200
+  strength_discount: 0.7

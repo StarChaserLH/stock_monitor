@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}StockMonitor{% endblock %}</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+    <style>
+        [x-cloak] { display: none !important; }
+        .sidebar-link.active { background: #1e293b; color: #e2e8f0; }
+        .fade-in { animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        .spinner { border: 2px solid #e2e8f0; border-top: 2px solid #3b82f6; border-radius: 50%; width: 18px; height: 18px; animation: spin 0.6s linear infinite; display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        pre.code-block { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div x-data="appShell()" class="flex h-screen overflow-hidden">
+        <!-- 侧边栏 -->
+        <aside x-show="sidebarOpen" x-transition:enter="transition-all duration-200" x-transition:enter-start="-ml-56 opacity-0" x-transition:enter-end="ml-0 opacity-100" x-transition:leave="transition-all duration-200" x-transition:leave-start="ml-0 opacity-100" x-transition:leave-end="-ml-56 opacity-0" class="w-56 bg-gray-900 text-gray-300 flex flex-col shrink-0">
+            <div class="p-5 border-b border-gray-700">
+                <h1 class="text-base font-bold text-white flex items-center gap-2">
+                    <span class="text-blue-400">◆</span> StockMonitor
+                </h1>
+                <p class="text-xs text-gray-500 mt-1">A股行情监测</p>
+            </div>
+            <nav class="flex-1 py-4 space-y-1 px-3">
+                {% set nav_items = [
+                    ('/dashboard', '仪表盘', 'view-dashboard'),
+                    ('/positions', '持仓管理', 'wallet'),
+                    ('/signals', '信号历史', 'bell-ring'),
+                    ('/lof/premium', 'LOF 监测', 'chart-line'),
+                    ('/instruments', '标的管理', 'format-list-bulleted'),
+                    ('/strategies', '策略管理', 'brain'),
+                    ('/backtest', '策略回测', 'chart-timeline-variant'),
+                ] %}
+                {% for href, label, icon in nav_items %}
+                <a href="{{ href }}"
+                   class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors hover:bg-gray-800 hover:text-white
+                          {% if request.path == href %}active{% endif %}">
+                    <span class="mdi mdi-{{ icon }} text-lg"></span>
+                    {{ label }}
+                </a>
+                {% endfor %}
+
+                <!-- 推送管理分组 -->
+                <div class="pt-3 mt-2 border-t border-gray-700">
+                    <span class="px-3 text-xs uppercase tracking-wider text-gray-500">推送管理</span>
+                </div>
+                {% set push_items = [
+                    ('/push/settings', '推送配置', 'tune'),
+                    ('/push/history', '推送历史', 'history'),
+                ] %}
+                {% for href, label, icon in push_items %}
+                <a href="{{ href }}"
+                   class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors hover:bg-gray-800 hover:text-white
+                          {% if request.path == href %}active{% endif %}">
+                    <span class="mdi mdi-{{ icon }} text-lg"></span>
+                    {{ label }}
+                </a>
+                {% endfor %}
+
+                {% set sys_items = [
+                    ('/system', '系统状态', 'cog'),
+                ] %}
+                {% for href, label, icon in sys_items %}
+                <a href="{{ href }}"
+                   class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors hover:bg-gray-800 hover:text-white
+                          {% if request.path == href %}active{% endif %}">
+                    <span class="mdi mdi-{{ icon }} text-lg"></span>
+                    {{ label }}
+                </a>
+                {% endfor %}
+            </nav>
+            <div class="p-4 border-t border-gray-700 text-xs text-gray-500">
+                已登录 · <a href="/logout" class="text-blue-400 hover:underline">退出</a>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="flex-1 overflow-y-auto p-6 relative">
+            <!-- 折叠按钮 -->
+            <button @click="sidebarOpen = !sidebarOpen" class="absolute top-3 left-3 z-10 w-7 h-7 rounded-full bg-white border border-gray-300 shadow-sm flex items-center justify-center hover:bg-gray-100 transition-colors" title="折叠/展开侧边栏">
+                <span class="mdi mdi-menu text-gray-500 text-sm"></span>
+            </button>
+            <div class="ml-6">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function appShell() {
+            return { sidebarOpen: true };
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

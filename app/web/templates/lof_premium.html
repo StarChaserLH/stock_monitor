@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}LOF 溢价监测 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="lofPage()" x-init="fetchData(); startPoll()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">LOF 溢价监测</h2>
+
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">全市场 LOF</p>
+            <p class="text-2xl font-bold text-gray-800 mt-1" x-text="summary.total_count || 0"></p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">预警数量</p>
+            <p class="text-2xl font-bold mt-1" :class="summary.alert_count > 0 ? 'text-red-500' : 'text-gray-800'"
+               x-text="summary.alert_count || 0"></p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">数据时间</p>
+            <p class="text-sm text-gray-700 mt-1" x-text="summary.update_time || '-'"></p>
+        </div>
+    </div>
+
+    <!-- Top 5 溢价 / 折价 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+            <div class="px-5 py-3 border-b border-gray-100 font-medium text-red-600">🔴 溢价 Top 5</div>
+            <table class="w-full text-sm" x-show="summary.top_premium?.length">
+                <thead class="bg-gray-50 text-gray-500"><tr>
+                    <th class="text-left px-4 py-2">代码</th><th class="text-left px-4 py-2">名称</th>
+                    <th class="text-right px-4 py-2">价格</th><th class="text-right px-4 py-2">净值</th>
+                    <th class="text-right px-4 py-2">溢价率</th>
+                </tr></thead>
+                <tbody>
+                    <template x-for="r in summary.top_premium" :key="r.symbol">
+                        <tr class="border-t border-gray-50 hover:bg-red-50">
+                            <td class="px-4 py-2 font-mono text-xs" x-text="r.symbol"></td>
+                            <td class="px-4 py-2 text-xs" x-text="r.name"></td>
+                            <td class="px-4 py-2 text-right font-mono text-xs" x-text="r.price?.toFixed(4)"></td>
+                            <td class="px-4 py-2 text-right font-mono text-xs" x-text="r.nav?.toFixed(4)"></td>
+                            <td class="px-4 py-2 text-right font-mono text-xs font-bold text-red-600"
+                                x-text="(r.premium_rate > 0 ? '+' : '') + r.premium_rate?.toFixed(2) + '%'"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            <div x-show="!summary.top_premium?.length" class="p-4 text-center text-gray-400 text-xs">暂无数据</div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+            <div class="px-5 py-3 border-b border-gray-100 font-medium text-green-600">🟢 折价 Top 5</div>
+            <table class="w-full text-sm" x-show="summary.top_discount?.length">
+                <thead class="bg-gray-50 text-gray-500"><tr>
+                    <th class="text-left px-4 py-2">代码</th><th class="text-left px-4 py-2">名称</th>
+                    <th class="text-right px-4 py-2">价格</th><th class="text-right px-4 py-2">净值</th>
+                    <th class="text-right px-4 py-2">溢价率</th>
+                </tr></thead>
+                <tbody>
+                    <template x-for="r in summary.top_discount" :key="r.symbol">
+                        <tr class="border-t border-gray-50 hover:bg-green-50">
+                            <td class="px-4 py-2 font-mono text-xs" x-text="r.symbol"></td>
+                            <td class="px-4 py-2 text-xs" x-text="r.name"></td>
+                            <td class="px-4 py-2 text-right font-mono text-xs" x-text="r.price?.toFixed(4)"></td>
+                            <td class="px-4 py-2 text-right font-mono text-xs" x-text="r.nav?.toFixed(4)"></td>
+                            <td class="px-4 py-2 text-right font-mono text-xs font-bold text-green-600"
+                                x-text="r.premium_rate?.toFixed(2) + '%'"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            <div x-show="!summary.top_discount?.length" class="p-4 text-center text-gray-400 text-xs">暂无数据</div>
+        </div>
+    </div>
+
+    <!-- 全量 LOF 溢价榜 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 flex items-center justify-between">
+            <span>全市场 LOF 溢价榜</span>
+            <div class="flex items-center gap-3">
+                <input type="text" x-model="search" @input="applyFilter()" placeholder="搜索代码/名称..."
+                       class="border border-gray-300 rounded-lg px-3 py-1.5 text-xs w-40 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button @click="fetchData()" class="text-blue-500 text-xs hover:underline">刷新</button>
+                <label class="flex items-center gap-1 text-xs text-gray-500">
+                    <input type="checkbox" x-model="filterEnabled" @change="applyFilter()" class="accent-blue-500"> 仅可套利
+                </label>
+                <label class="flex items-center gap-1 text-xs text-gray-500">
+                    <input type="checkbox" x-model="autoRefresh" @change="togglePoll" class="accent-blue-500"> 自动刷新
+                </label>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm" x-show="filteredList.length">
+                <thead class="bg-gray-50 text-gray-500"><tr>
+                    <th class="text-left px-2 py-2 cursor-pointer hover:text-gray-700" @click="sortBy('symbol')">代码</th>
+                    <th class="text-left px-2 py-2 cursor-pointer hover:text-gray-700" @click="sortBy('name')">名称</th>
+                    <th class="text-right px-2 py-2 cursor-pointer hover:text-gray-700" @click="sortBy('price')">最新价</th>
+                    <th class="text-right px-2 py-2">净值</th>
+                    <th class="text-right px-2 py-2 cursor-pointer hover:text-gray-700" @click="sortBy('premium_rate')">溢价率</th>
+                    <th class="text-right px-2 py-2">涨跌幅</th>
+                    <th class="text-right px-2 py-2 cursor-pointer hover:text-gray-700" @click="sortBy('amount')">成交额</th>
+                    <th class="text-center px-2 py-2">申购状态</th>
+                    <th class="text-right px-2 py-2">限额</th>
+                </tr></thead>
+                <tbody>
+                    <template x-for="r in pagedList" :key="r.symbol">
+                        <tr class="border-t border-gray-50 hover:bg-gray-50"
+                            :class="{
+                                'bg-red-50': r.premium_rate >= threshold.premium,
+                                'bg-green-50': r.premium_rate <= threshold.discount,
+                            }">
+                            <td class="px-2 py-2 font-mono text-xs" x-text="r.symbol"></td>
+                            <td class="px-2 py-2 text-xs truncate max-w-[100px]" x-text="r.name"></td>
+                            <td class="px-2 py-2 text-right font-mono text-xs" x-text="r.price?.toFixed(4)"></td>
+                            <td class="px-2 py-2 text-right font-mono text-xs text-gray-500" x-text="r.nav != null ? parseFloat(r.nav).toFixed(4) : '-'"></td>
+                            <td class="px-2 py-2 text-right font-mono text-xs font-bold"
+                                :class="{'text-red-600': r.premium_rate > 0, 'text-green-600': r.premium_rate < 0, 'text-gray-400': r.premium_rate === 0 || r.premium_rate == null}"
+                                x-text="r.premium_rate != null ? ((r.premium_rate > 0 ? '+' : '') + r.premium_rate.toFixed(2) + '%') : '-'"></td>
+                            <td class="px-2 py-2 text-right font-mono text-xs"
+                                :class="r.pct_change >= 0 ? 'text-red-500' : 'text-green-500'"
+                                x-text="r.pct_change != null ? ((r.pct_change > 0 ? '+' : '') + r.pct_change.toFixed(2) + '%') : '-'"></td>
+                            <td class="px-2 py-2 text-right font-mono text-xs text-gray-500"
+                                x-text="r.amount != null ? (r.amount / 1e8).toFixed(2) + '亿' : '-'"></td>
+                            <td class="px-2 py-2 text-center text-xs"
+                                :class="{'text-green-600': r.subscribe_status && r.subscribe_status.includes('开放'), 'text-red-500': r.subscribe_status && r.subscribe_status.includes('暂停'), 'text-yellow-600': r.subscribe_status && r.subscribe_status.includes('限额'), 'text-gray-400': !r.subscribe_status}"
+                                x-text="r.subscribe_status || '-'"></td>
+                            <td class="px-2 py-2 text-right text-xs text-gray-500"
+                                x-text="(r.daily_limit || r.min_purchase) != null ? ((r.daily_limit || r.min_purchase) >= 10000 ? ((r.daily_limit || r.min_purchase) / 10000).toFixed(0) + '万' : (r.daily_limit || r.min_purchase) + '元') : '-'"></td>
+                    </template>
+                </tbody>
+            </table>
+            <div x-show="!filteredList.length" class="p-8 text-center text-gray-400 text-sm">
+                <span x-show="filterEnabled">当前无可套利标的（成交额>500万 + 申购开放 + 溢价>5%）</span>
+                <span x-show="!filterEnabled">暂无数据</span>
+            </div>
+        </div>
+        <!-- 分页 -->
+        <div class="px-5 py-3 border-t border-gray-100 flex items-center justify-between text-xs" x-show="totalPages > 1">
+            <span class="text-gray-400" x-text="`共 ${filteredList.length} 条`"></span>
+            <div class="flex gap-1">
+                <button @click="page = Math.max(1, page - 1)" :disabled="page <= 1"
+                        class="px-2 py-1 border rounded disabled:opacity-30">上一页</button>
+                <span class="px-2 py-1 text-gray-500" x-text="`${page}/${totalPages}`"></span>
+                <button @click="page = Math.min(totalPages, page + 1)" :disabled="page >= totalPages"
+                        class="px-2 py-1 border rounded disabled:opacity-30">下一页</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function lofPage() {
+    return {
+        list: [],
+        filteredList: [],
+        summary: { top_premium: [], top_discount: [], alert_count: 0, total_count: 0, update_time: '' },
+        search: '',
+        sortField: 'premium_rate',
+        sortDir: 'desc',
+        page: 1,
+        pageSize: 30,
+        autoRefresh: true,
+        filterEnabled: false,
+        pollTimer: null,
+        threshold: { premium: 5.0, discount: -3.0 },
+
+        async fetchData() {
+            try {
+                const resp = await fetch('/api/lof/all');
+                const data = await resp.json();
+                this.list = data.list || [];
+                this.summary = data.summary || {};
+                this.applyFilter();
+            } catch (e) {
+                console.error('LOF data fetch failed:', e);
+            }
+        },
+        applyFilter() {
+            let items = this.list.filter(r => {
+                if (!this.search) return true;
+                const s = this.search.toLowerCase();
+                return (r.symbol || '').toLowerCase().includes(s) ||
+                       (r.name || '').toLowerCase().includes(s);
+            });
+            // 可套利过滤：成交额 > 500万 + 申购开放 + 溢价率 > 5%
+            if (this.filterEnabled) {
+                items = items.filter(r => {
+                    return (r.amount || 0) >= 5000000
+                        && (r.subscribe_status || '').includes('开放')
+                        && (r.premium_rate || 0) > 5;
+                });
+            }
+            // sort
+            const dir = this.sortDir === 'asc' ? 1 : -1;
+            items.sort((a, b) => {
+                const va = a[this.sortField] != null ? a[this.sortField] : -Infinity;
+                const vb = b[this.sortField] != null ? b[this.sortField] : -Infinity;
+                return (va - vb) * dir;
+            });
+            this.filteredList = items;
+            this.page = 1;
+        },
+        sortBy(field) {
+            if (this.sortField === field) {
+                this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.sortField = field;
+                this.sortDir = 'desc';
+            }
+            this.applyFilter();
+        },
+        get totalPages() {
+            return Math.max(1, Math.ceil(this.filteredList.length / this.pageSize));
+        },
+        get pagedList() {
+            const start = (this.page - 1) * this.pageSize;
+            return this.filteredList.slice(start, start + this.pageSize);
+        },
+        startPoll() {
+            this.pollTimer = setInterval(() => this.fetchData(), 30000);
+        },
+        togglePoll() {
+            if (this.autoRefresh) {
+                this.pollTimer = setInterval(() => this.fetchData(), 30000);
+            } else {
+                clearInterval(this.pollTimer);
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

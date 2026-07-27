@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}推送配置 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="pushSettings()" x-init="fetchConfig()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">推送配置</h2>
+
+    <!-- 保存提示 -->
+    <div x-show="saveMsg" class="mb-4 px-4 py-3 rounded-lg text-sm font-medium fade-in"
+         :class="saveOk ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'"
+         x-text="saveMsg"></div>
+
+    <!-- 总开关 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="font-medium text-gray-800">消息推送</p>
+                <p class="text-xs text-gray-400 mt-1">关闭后所有渠道均不发送通知</p>
+            </div>
+            <button @click="config.enabled = !config.enabled"
+                    :class="config.enabled ? 'bg-blue-600' : 'bg-gray-300'"
+                    class="relative w-12 h-6 rounded-full transition-colors duration-200">
+                <span :class="config.enabled ? 'translate-x-6' : 'translate-x-1'"
+                      class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"></span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 渠道列表 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700">推送渠道</div>
+        <template x-for="(ch, key) in config.channels" :key="key">
+            <div class="px-5 py-4 border-b border-gray-50 last:border-0">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <button @click="ch.enabled = !ch.enabled"
+                                :class="ch.enabled ? 'bg-blue-600' : 'bg-gray-300'"
+                                class="relative w-10 h-5 rounded-full transition-colors duration-200">
+                            <span :class="ch.enabled ? 'translate-x-5' : 'translate-x-0.5'"
+                                  class="absolute top-0.5 left-0 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200"></span>
+                        </button>
+                        <div>
+                            <p class="font-medium text-gray-700 text-sm" x-text="ch.name"></p>
+                            <p class="text-xs text-gray-400 mt-0.5 font-mono">
+                                <span x-show="ch.webhook_url" x-text="ch.webhook_url"></span>
+                                <span x-show="!ch.webhook_url && ch.username" x-text="ch.username + ' -> ' + (ch.recipients||[]).join(',')"></span>
+                                <span x-show="!ch.webhook_url && !ch.username">（未配置）</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="editChannel(key)"
+                                class="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors">
+                            编辑
+                        </button>
+                        <button @click="testChannel(key)"
+                                :disabled="testing[key]"
+                                class="text-xs px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors disabled:opacity-50">
+                            <span class="spinner" x-show="testing[key]"></span>
+                            <span x-text="testing[key] ? '测试中' : '测试'"></span>
+                        </button>
+                    </div>
+                </div>
+                <!-- 测试结果 -->
+                <div x-show="testResult[key]" class="mt-2 text-xs fade-in"
+                     :class="testResult[key]?.ok ? 'text-green-600' : 'text-red-500'"
+                     x-text="testResult[key]?.message"></div>
+            </div>
+        </template>
+    </div>
+
+    <!-- 免打扰设置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <p class="font-medium text-gray-800">免打扰时段</p>
+            <button @click="config.quiet_hours.enabled = !config.quiet_hours.enabled"
+                    :class="config.quiet_hours.enabled ? 'bg-blue-600' : 'bg-gray-300'"
+                    class="relative w-12 h-6 rounded-full transition-colors duration-200">
+                <span :class="config.quiet_hours.enabled ? 'translate-x-6' : 'translate-x-1'"
+                      class="absolute top-0.5 left-0 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"></span>
+            </button>
+        </div>
+        <div class="flex items-center gap-4" x-show="config.quiet_hours.enabled">
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-500">开始</label>
+                <select x-model.number="config.quiet_hours.start" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <template x-for="h in 24" :key="h-1">
+                        <option :value="h-1" x-text="String(h-1).padStart(2,'0') + ':00'"></option>
+                    </template>
+                </select>
+            </div>
+            <span class="text-gray-400">至</span>
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-500">结束</label>
+                <select x-model.number="config.quiet_hours.end" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <template x-for="h in 24" :key="h-1">
+                        <option :value="h-1" x-text="String(h-1).padStart(2,'0') + ':00'"></option>
+                    </template>
+                </select>
+            </div>
+        </div>
+        <p class="text-xs text-gray-400 mt-3" x-show="config.quiet_hours.enabled">
+            免打扰期间，info 级别的通知将跳过不发送。
+        </p>
+    </div>
+
+    <!-- 频率限制 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+        <p class="font-medium text-gray-800 mb-4">频率限制</p>
+        <div class="grid grid-cols-2 gap-6">
+            <div>
+                <label class="text-sm text-gray-500 block mb-1">相同标题最小间隔（分钟）</label>
+                <input type="number" x-model.number="config.frequency.min_interval_minutes" min="0" max="60"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <p class="text-xs text-gray-400 mt-1">同一信号不会被重复推送</p>
+            </div>
+            <div>
+                <label class="text-sm text-gray-500 block mb-1">每小时最大推送数（0=不限制）</label>
+                <input type="number" x-model.number="config.frequency.max_per_hour" min="0" max="500"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <p class="text-xs text-gray-400 mt-1">防止短时间内大量推送</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 保存 -->
+    <div class="flex items-center gap-3">
+        <button @click="saveConfig()"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors">
+            保存配置
+        </button>
+        <button @click="fetchConfig()"
+                class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm transition-colors">
+            重置
+        </button>
+    </div>
+
+    <!-- 编辑渠道模态框 -->
+    <div x-show="editingChannel" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="editingChannel=null">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 fade-in">
+            <h3 class="font-bold text-gray-800 mb-4" x-text="'编辑渠道: ' + (config.channels[editingChannel]?.name || '')"></h3>
+            <div class="mb-4">
+                <label class="text-sm text-gray-500 block mb-1">Webhook URL</label>
+                <input type="text" x-model="editForm.webhook_url"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                       placeholder="https://...">
+            </div>
+            <template x-if="editForm.smtp_host !== undefined">
+                <div>
+                    <label class="text-sm text-gray-500 block mb-1">SMTP 服务器</label>
+                    <input type="text" x-model="editForm.smtp_host"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3">
+                    <label class="text-sm text-gray-500 block mb-1">端口</label>
+                    <input type="number" x-model.number="editForm.smtp_port"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3">
+                    <label class="text-sm text-gray-500 block mb-1">发件邮箱</label>
+                    <input type="text" x-model="editForm.username"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3">
+                    <label class="text-sm text-gray-500 block mb-1">授权码</label>
+                    <input type="password" x-model="editForm.password" placeholder="留空则不修改"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3">
+                    <label class="text-sm text-gray-500 block mb-1">收件人（逗号分隔）</label>
+                    <input type="text" x-model="editForm.recipients"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3">
+                </div>
+            </template>
+            <div class="flex gap-2 justify-end">
+                <button @click="editingChannel=null"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm">取消</button>
+                <button @click="saveChannelEdit()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm">确认</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function pushSettings() {
+    return {
+        config: {
+            enabled: true,
+            quiet_hours: { enabled: true, start: 22, end: 8 },
+            frequency: { min_interval_minutes: 5, max_per_hour: 20 },
+            channels: {}
+        },
+        testing: {},
+        testResult: {},
+        editingChannel: null,
+        editForm: {},
+        saveMsg: '',
+        saveOk: false,
+
+        async fetchConfig() {
+            const resp = await fetch('/api/push/settings');
+            this.config = await resp.json();
+        },
+        async testChannel(key) {
+            this.testing[key] = true;
+            this.testResult[key] = null;
+            const resp = await fetch('/api/push/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: key })
+            });
+            this.testResult[key] = await resp.json();
+            this.testing[key] = false;
+            setTimeout(() => { this.testResult[key] = null; }, 5000);
+        },
+        async saveConfig() {
+            this.saveMsg = '';
+            const resp = await fetch('/api/push/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.config)
+            });
+            const r = await resp.json();
+            this.saveOk = r.status === 'ok';
+            this.saveMsg = r.status === 'ok' ? '配置已保存并写入 config.yaml' : ('保存失败: ' + (r.message || ''));
+            setTimeout(() => { this.saveMsg = ''; }, 4000);
+        },
+        editChannel(key) {
+            this.editingChannel = key;
+            const ch = this.config.channels[key];
+            const cfg = ch.config || {};
+            this.editForm = {
+                webhook_url: ch.webhook_url || '',
+                username: ch.username || '',
+                recipients: ch.recipients ? ch.recipients.join(', ') : '',
+                smtp_host: cfg.smtp_host || '',
+                smtp_port: cfg.smtp_port || 465,
+            };
+        },
+        saveChannelEdit() {
+            if (!this.editingChannel) return;
+            const data = { ...this.editForm };
+            if (typeof data.recipients === 'string') {
+                data.recipients = data.recipients.split(/[,，\s]+/).filter(Boolean);
+            }
+            // 移除空密码（不覆盖原值）
+            if (!data.password) delete data.password;
+            Object.assign(this.config.channels[this.editingChannel], data);
+            this.editingChannel = null;
+        }
+    }
+}
+</script>
+{% endblock %}

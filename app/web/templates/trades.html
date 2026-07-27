@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}交易记录 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="trades()" x-init="fetchData()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">交易记录</h2>
+
+    <!-- 筛选栏 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+        <div class="flex flex-wrap items-center gap-3">
+            <input type="text" x-model="filters.symbol" placeholder="标的代码"
+                   class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input type="date" x-model="filters.dateFrom" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <span class="text-gray-400">至</span>
+            <input type="date" x-model="filters.dateTo" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <button @click="fetchData()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                筛选
+            </button>
+            <button @click="filters={symbol:'',dateFrom:'',dateTo:''}; fetchData()"
+                    class="text-gray-500 text-sm hover:underline">清除</button>
+        </div>
+    </div>
+
+    <!-- 交易表格 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <table class="w-full text-sm" x-show="orders.length">
+            <thead class="bg-gray-50 text-gray-500">
+                <tr>
+                    <th class="text-left px-5 py-2">时间</th>
+                    <th class="text-left px-5 py-2">标的</th>
+                    <th class="text-left px-5 py-2">方向</th>
+                    <th class="text-right px-5 py-2">委托价</th>
+                    <th class="text-right px-5 py-2">成交价</th>
+                    <th class="text-right px-5 py-2">数量</th>
+                    <th class="text-right px-5 py-2">佣金</th>
+                    <th class="text-right px-5 py-2">成交金额</th>
+                    <th class="text-left px-5 py-2">状态</th>
+                    <th class="text-left px-5 py-2">原因</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="o in pagedOrders" :key="o.order_id">
+                    <tr class="border-t border-gray-50 hover:bg-gray-50">
+                        <td class="px-5 py-2 text-gray-500 text-xs" x-text="o.created_at?.slice(0,19)"></td>
+                        <td class="px-5 py-2 font-mono text-xs" x-text="o.symbol"></td>
+                        <td class="px-5 py-2">
+                            <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                  :class="o.side === 'buy' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
+                                  x-text="o.side === 'buy' ? '买入' : '卖出'"></span>
+                        </td>
+                        <td class="px-5 py-2 text-right font-mono text-xs" x-text="o.price?.toFixed(4)"></td>
+                        <td class="px-5 py-2 text-right font-mono text-xs" x-text="o.filled_price?.toFixed(4)"></td>
+                        <td class="px-5 py-2 text-right font-mono text-xs" x-text="o.filled_quantity"></td>
+                        <td class="px-5 py-2 text-right font-mono text-xs text-gray-500" x-text="o.commission?.toFixed(2)"></td>
+                        <td class="px-5 py-2 text-right font-mono text-xs"
+                            x-text="(o.filled_price * o.filled_quantity)?.toFixed(2)"></td>
+                        <td class="px-5 py-2 text-xs" x-text="o.status === 'filled' ? '已成交' : o.status"></td>
+                        <td class="px-5 py-2 text-gray-500 text-xs truncate max-w-[120px]" x-text="o.reason"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        <div x-show="!orders.length" class="p-8 text-center text-gray-400 text-sm">暂无交易记录</div>
+    </div>
+
+    <!-- 分页 -->
+    <div class="flex items-center justify-between mt-4 text-sm" x-show="totalPages > 1">
+        <span class="text-gray-500" x-text="`共 ${orders.length} 条记录，第 ${page}/${totalPages} 页`"></span>
+        <div class="flex gap-1">
+            <button @click="page=1" :disabled="page<=1" class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">首页</button>
+            <button @click="page--" :disabled="page<=1" class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">上一页</button>
+            <button @click="page++" :disabled="page>=totalPages" class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">下一页</button>
+            <button @click="page=totalPages" :disabled="page>=totalPages" class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">末页</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function trades() {
+    return {
+        orders: [],
+        filters: { symbol: '', dateFrom: '', dateTo: '' },
+        page: 1,
+        pageSize: 20,
+        get totalPages() { return Math.max(1, Math.ceil(this.orders.length / this.pageSize)); },
+        get pagedOrders() {
+            const start = (this.page - 1) * this.pageSize;
+            return this.orders.slice(start, start + this.pageSize);
+        },
+        async fetchData() {
+            const params = new URLSearchParams();
+            if (this.filters.symbol) params.set('symbol', this.filters.symbol);
+            if (this.filters.dateFrom) params.set('date_from', this.filters.dateFrom);
+            if (this.filters.dateTo) params.set('date_to', this.filters.dateTo);
+            params.set('limit', '500');
+            const resp = await fetch('/api/trades?' + params.toString());
+            this.orders = await resp.json();
+            this.page = 1;
+        }
+    }
+}
+</script>
+{% endblock %}

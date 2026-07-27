@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}策略管理 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="strategies()" x-init="fetchList()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">策略管理</h2>
+
+    <!-- 生成新策略 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700">自然语言生成策略</div>
+        <div class="p-5">
+            <textarea x-model="description" rows="3"
+                      placeholder="用自然语言描述你的策略，例如：当5日均线上穿20日均线且成交量大于1.5倍前一日成交量时产生买入信号"
+                      class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+            <div class="flex items-center gap-3 mt-3">
+                <input type="text" x-model="stratName" placeholder="策略名称（可选）" class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-48">
+                <button @click="generate()" :disabled="generating"
+                        class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors">
+                    <span class="spinner" x-show="generating"></span>
+                    <span x-text="generating ? '生成中...' : '生成策略'"></span>
+                </button>
+            </div>
+            <p x-show="genError" class="text-red-500 text-xs mt-2" x-text="genError"></p>
+
+            <!-- 生成结果预览 -->
+            <div x-show="genCode" class="mt-4 fade-in">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-700">代码预览</span>
+                    <button @click="editMode = !editMode" class="text-blue-500 text-xs hover:underline"
+                            x-text="editMode ? '只读' : '编辑'"></button>
+                </div>
+                <pre class="code-block" x-show="!editMode" x-text="genCode"></pre>
+                <textarea x-show="editMode" x-model="genCode" rows="16"
+                          class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                <div class="flex gap-2 mt-3">
+                    <button @click="saveGenerated()"
+                            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                        确认保存
+                    </button>
+                    <button @click="genCode=''; genDesc=''; genError=''"
+                            class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                        取消
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 已有策略列表 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 flex justify-between items-center">
+            <span>已有策略</span>
+            <button @click="fetchList()" class="text-blue-500 text-xs hover:underline">刷新</button>
+        </div>
+        <table class="w-full text-sm" x-show="list.length">
+            <thead class="bg-gray-50 text-gray-500">
+                <tr>
+                    <th class="text-left px-5 py-2">名称</th>
+                    <th class="text-left px-5 py-2">描述</th>
+                    <th class="text-left px-5 py-2">状态</th>
+                    <th class="text-left px-5 py-2">创建时间</th>
+                    <th class="text-right px-5 py-2">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="s in list" :key="s.id">
+                    <tr class="border-t border-gray-50 hover:bg-gray-50">
+                        <td class="px-5 py-3 font-medium text-gray-800" x-text="s.name"></td>
+                        <td class="px-5 py-3 text-gray-500 text-xs truncate max-w-[200px]" x-text="s.description"></td>
+                        <td class="px-5 py-3">
+                            <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                  :class="s.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
+                                  x-text="s.enabled ? '启用' : '禁用'"></span>
+                        </td>
+                        <td class="px-5 py-3 text-gray-500 text-xs" x-text="s.created_at?.slice(0,10)"></td>
+                        <td class="px-5 py-3 text-right">
+                            <button @click="toggle(s.id)" class="text-xs px-2 py-1 rounded hover:bg-gray-100"
+                                    x-text="s.enabled ? '禁用' : '启用'"></button>
+                            <button @click="viewCode(s.id)" class="text-xs px-2 py-1 rounded hover:bg-gray-100 text-blue-500">查看</button>
+                            <button @click="deleteStrategy(s.id)" class="text-xs px-2 py-1 rounded hover:bg-gray-100 text-red-500">删除</button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        <div x-show="!list.length" class="p-8 text-center text-gray-400 text-sm">暂无策略，请用上方自然语言描述生成</div>
+    </div>
+
+    <!-- 查看代码弹窗 -->
+    <div x-show="viewingCode" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="viewingCode=null">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6 fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-gray-800" x-text="'策略代码: ' + viewingName"></h3>
+                <button @click="viewingCode=null" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+            <pre class="code-block" x-text="viewingCode"></pre>
+        </div>
+    </div>
+
+    <!-- 加载遮罩 -->
+    <div x-show="generating" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 shadow-2xl flex items-center gap-3">
+            <div class="spinner"></div>
+            <span class="text-gray-600 text-sm">正在调用 DeepSeek 生成策略...</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function strategies() {
+    return {
+        list: [],
+        description: '',
+        stratName: '',
+        genCode: '',
+        genDesc: '',
+        genError: '',
+        generating: false,
+        editMode: false,
+        viewingCode: null,
+        viewingName: '',
+        async fetchList() {
+            const resp = await fetch('/api/strategies');
+            this.list = await resp.json();
+        },
+        async generate() {
+            if (!this.description.trim()) return;
+            this.generating = true;
+            this.genError = '';
+            this.genCode = '';
+            try {
+                const resp = await fetch('/api/strategies/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ description: this.description, name: this.stratName })
+                });
+                const r = await resp.json();
+                if (r.error) {
+                    this.genError = r.error;
+                } else {
+                    this.genCode = r.code;
+                    this.genDesc = r.desc || '';
+                }
+            } catch (e) {
+                this.genError = '网络错误: ' + e.message;
+            }
+            this.generating = false;
+        },
+        async saveGenerated() {
+            const resp = await fetch('/api/strategies/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: this.stratName || '未命名策略',
+                    description: this.genDesc || this.description,
+                    code: this.genCode
+                })
+            });
+            const r = await resp.json();
+            if (r.status === 'ok') {
+                this.genCode = '';
+                this.genDesc = '';
+                this.description = '';
+                this.stratName = '';
+                await this.fetchList();
+            } else {
+                this.genError = r.error || '保存失败';
+            }
+        },
+        async toggle(id) {
+            await fetch('/api/strategies/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id })
+            });
+            await this.fetchList();
+        },
+        async viewCode(id) {
+            const resp = await fetch(`/api/strategies/${id}/code`);
+            const r = await resp.json();
+            this.viewingCode = r.code;
+            this.viewingName = r.name;
+        },
+        async deleteStrategy(id) {
+            if (!confirm('确认删除此策略？此操作不可恢复。')) return;
+            await fetch(`/api/strategies/${id}`, { method: 'DELETE' });
+            await this.fetchList();
+        }
+    }
+}
+</script>
+{% endblock %}

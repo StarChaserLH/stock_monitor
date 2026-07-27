@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}持仓管理 - StockMonitor{% endblock %}
+{% block content %}
+<div x-data="positionsPage()" x-init="load()">
+    <h2 class="text-xl font-bold text-gray-800 mb-6">持仓管理</h2>
+
+    <!-- 添加持仓表单 -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">添加 / 更新持仓</h3>
+        <div class="grid grid-cols-5 gap-3">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">股票代码</label>
+                <input x-model="form.symbol" type="text" placeholder="如 510050"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">数量（股）</label>
+                <input x-model.number="form.shares" type="number" min="100" step="100" placeholder="100"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">成本价</label>
+                <input x-model.number="form.cost" type="number" min="0.01" step="0.001" placeholder="2.935"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">买入日期</label>
+                <input x-model="form.date" type="date"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+            </div>
+            <div class="flex items-end">
+                <button @click="add()" :disabled="loading"
+                        class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded px-4 py-2 text-sm font-medium transition-colors">
+                    <span x-show="!loading">保存</span>
+                    <span x-show="loading" class="spinner"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 持仓列表 -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+            <h3 class="text-sm font-semibold text-gray-700">
+                持仓列表 <span class="text-gray-400 font-normal" x-text="'(' + list.length + ' 只)'"></span>
+            </h3>
+            <button @click="load()" class="text-blue-500 hover:text-blue-700 text-sm flex items-center gap-1">
+                <span class="mdi mdi-refresh"></span> 刷新
+            </button>
+        </div>
+
+        <div x-show="loading && list.length === 0" class="p-8 text-center">
+            <span class="spinner"></span> <span class="text-gray-500 text-sm ml-2">加载中...</span>
+        </div>
+
+        <div x-show="!loading && list.length === 0" class="p-8 text-center text-gray-400 text-sm">
+            暂无持仓记录，请在上方添加
+        </div>
+
+        <div x-show="list.length > 0" class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-500 text-left">
+                    <tr>
+                        <th class="px-4 py-3 font-medium w-40">标的</th>
+                        <th class="px-4 py-3 font-medium">数量</th>
+                        <th class="px-4 py-3 font-medium">成本价</th>
+                        <th class="px-4 py-3 font-medium">现价</th>
+                        <th class="px-4 py-3 font-medium">市值</th>
+                        <th class="px-4 py-3 font-medium">浮盈</th>
+                        <th class="px-4 py-3 font-medium">涨幅</th>
+                        <th class="px-4 py-3 font-medium">日期</th>
+                        <th class="px-4 py-3 font-medium text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    <template x-for="p in list" :key="p.symbol">
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-4 py-3 text-xs whitespace-nowrap"><span class="font-mono font-medium text-gray-800" x-text="p.symbol"></span><span class="text-gray-500 ml-1" x-text="p.name ? '[' + p.name + ']' : ''"></span></td>
+                            <td class="px-4 py-3 text-gray-600" x-text="p.shares.toLocaleString()"></td>
+                            <td class="px-4 py-3 text-gray-600" x-text="p.cost.toFixed(3)"></td>
+                            <td class="px-4 py-3 text-gray-800" x-text="p.price ? p.price.toFixed(3) : '-'"></td>
+                            <td class="px-4 py-3 text-gray-600" x-text="p.price ? (p.price * p.shares).toLocaleString('zh', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'"></td>
+                            <td class="px-4 py-3" :class="p.pnl >= 0 ? 'text-red-500' : 'text-green-500'" x-text="p.price ? (p.pnl >= 0 ? '+' : '') + p.pnl.toLocaleString('zh', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'"></td>
+                            <td class="px-4 py-3" :class="p.pnl_pct >= 0 ? 'text-red-500' : 'text-green-500'" x-text="p.price ? (p.pnl_pct >= 0 ? '+' : '') + p.pnl_pct.toFixed(2) + '%' : '-'"></td>
+                            <td class="px-4 py-3 text-gray-500 text-xs" x-text="p.date"></td>
+                            <td class="px-4 py-3 text-center">
+                                <button @click="remove(p.symbol)" class="text-red-400 hover:text-red-600 transition-colors" title="删除">
+                                    <span class="mdi mdi-delete"></span>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function positionsPage() {
+    return {
+        list: [],
+        loading: false,
+        form: { symbol: "", shares: "", cost: "", date: "" },
+        async load() {
+            this.loading = true;
+            try {
+                const resp = await fetch("/api/positions");
+                this.list = await resp.json();
+            } finally {
+                this.loading = false;
+            }
+        },
+        async add() {
+            const { symbol, shares, cost } = this.form;
+            if (!symbol || !shares || !cost) {
+                alert("请完整填写代码、数量和成本");
+                return;
+            }
+            this.loading = true;
+            try {
+                const resp = await fetch("/api/positions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(this.form),
+                });
+                const data = await resp.json();
+                if (data.status === "ok") {
+                    this.form = { symbol: "", shares: "", cost: "", date: "" };
+                    await this.load();
+                } else {
+                    alert(data.message || "保存失败");
+                }
+            } finally {
+                this.loading = false;
+            }
+        },
+        async remove(symbol) {
+            if (!confirm("确认删除 " + symbol + " 的持仓记录？")) return;
+            await fetch("/api/positions/" + symbol, { method: "DELETE" });
+            await this.load();
+        },
+    };
+}
+</script>
+{% endblock %}

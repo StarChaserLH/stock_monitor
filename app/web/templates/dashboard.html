@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}仪表盘 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="dashboard()" x-init="fetchData()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">仪表盘</h2>
+
+    <!-- 总资产 + LOF -->
+    <div class="grid grid-cols-2 gap-6 mb-6">
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">总资产</p>
+            <p class="text-2xl font-bold text-gray-800 mt-1" x-text="fmt(data.account?.total_capital)"></p>
+            <p class="text-xs mt-1" :class="pnlClass()" x-text="pnlLabel()"></p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100" x-data="lofSnapshot()" x-init="fetchLof()" x-show="lof.top_premium?.length">
+            <div class="px-5 py-3 border-b border-gray-100 text-sm font-medium text-red-500 flex justify-between">
+                <span>LOF 溢价 Top 3</span>
+                <a href="/lof/premium" class="text-blue-400 text-xs hover:underline">查看更多</a>
+            </div>
+            <template x-for="r in (lof.top_premium || []).slice(0,3)" :key="r.symbol">
+                <div class="px-5 py-2 flex justify-between items-center border-b border-gray-50 last:border-0 text-xs">
+                    <span class="font-mono" x-text="r.symbol"></span>
+                    <span class="text-gray-500 truncate mx-2 flex-1" x-text="r.name"></span>
+                    <span class="font-bold text-red-500 font-mono" x-text="'+' + r.premium_rate?.toFixed(2) + '%'"></span>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- 持仓列表 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-6" x-show="data.positions?.length">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700">当前持仓</div>
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-500">
+                <tr><th class="text-left px-5 py-2">标的</th><th class="text-right px-5 py-2">数量</th><th class="text-right px-5 py-2">成本</th><th class="text-right px-5 py-2">市值</th><th class="text-right px-5 py-2">浮动盈亏</th></tr>
+            </thead>
+            <tbody>
+                <template x-for="p in data.positions" :key="p.symbol">
+                    <tr class="border-t border-gray-50 hover:bg-gray-50">
+                        <td class="px-5 py-3"><span class="font-mono" x-text="p.symbol"></span><span class="text-gray-500 ml-1" x-text="'[' + p.name + ']'"></span></td>
+                        <td class="px-5 py-3 text-right" x-text="p.shares"></td>
+                        <td class="px-5 py-3 text-right" x-text="p.avg_cost?.toFixed(4)"></td>
+                        <td class="px-5 py-3 text-right" x-text="p.market_value?.toFixed(2)"></td>
+                        <td class="px-5 py-3 text-right" :class="p.unrealized_pnl >= 0 ? 'text-red-500' : 'text-green-500'"
+                            x-text="(p.unrealized_pnl >= 0 ? '+' : '') + p.unrealized_pnl?.toFixed(2)"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 最新信号 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 flex justify-between items-center">
+            <span>最新信号</span>
+            <button @click="fetchData()" class="text-blue-500 text-xs hover:underline">刷新</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm" x-show="data.signals?.length">
+                <thead class="bg-gray-50 text-gray-500">
+                    <tr>
+                        <th class="text-left px-5 py-2">时间</th>
+                        <th class="text-left px-5 py-2">标的</th>
+                        <th class="text-left px-5 py-2">方向</th>
+                        <th class="text-right px-5 py-2">价格</th>
+                        <th class="text-left px-5 py-2">策略</th>
+                        <th class="text-left px-5 py-2">原因</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="s in data.signals" :key="s.id">
+                        <tr class="border-t border-gray-50 hover:bg-gray-50">
+                            <td class="px-5 py-2 text-gray-500 text-xs" x-text="s.timestamp?.slice(0,19)"></td>
+                            <td class="px-5 py-2 text-xs"><span class="font-mono" x-text="s.symbol"></span><span class="text-gray-500 ml-1" x-text="'[' + s.name + ']'"></span></td>
+                            <td class="px-5 py-2">
+                                <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                      :class="s.action === 'buy' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
+                                      x-text="s.action === 'buy' ? '买入' : '卖出'"></span>
+                            </td>
+                            <td class="px-5 py-2 text-right font-mono text-xs" x-text="s.price?.toFixed(4)"></td>
+                            <td class="px-5 py-2 text-xs" x-text="s.strategy_name"></td>
+                            <td class="px-5 py-2 text-gray-500 text-xs truncate max-w-[200px]" x-text="s.reason"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            <div x-show="!data.signals?.length" class="p-8 text-center text-gray-400 text-sm">暂无信号记录</div>
+            <div class="px-5 py-2 text-xs text-gray-400 border-t border-gray-100" x-show="data.signal_total > 10" x-text="'共 ' + data.signal_total + ' 条，展示最近 10 条'"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function lofSnapshot() {
+    return {
+        lof: { top_premium: [], top_discount: [] },
+        async fetchLof() {
+            try {
+                const resp = await fetch('/api/lof/summary');
+                this.lof = await resp.json();
+            } catch (e) { /* LOF 数据加载失败，静默处理 */ }
+        }
+    }
+}
+function dashboard() {
+    return {
+        data: { account: {}, positions: [], signals: [], strategies_count: 0, symbols_count: 0, signal_total: 0 },
+        async fetchData() {
+            const resp = await fetch('/api/dashboard');
+            this.data = await resp.json();
+        },
+        fmt(v) { return v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+        pnlClass() {
+            const p = this.data.account?.total_pnl || 0;
+            return p >= 0 ? 'text-red-500' : 'text-green-500';
+        },
+        pnlLabel() {
+            const p = this.data.account?.total_pnl || 0;
+            const pct = this.data.account?.total_pnl_pct || 0;
+            return `${p >= 0 ? '+' : ''}${p.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+        }
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}推送历史 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="pushHistory()" x-init="fetchData()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">推送历史</h2>
+
+    <!-- 筛选栏 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+        <div class="flex flex-wrap items-center gap-3">
+            <select x-model="filters.channel" @change="fetchData()"
+                    class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <option value="">全部渠道</option>
+                <template x-for="ch in channelOptions" :key="ch.key">
+                    <option :value="ch.key" x-text="ch.name"></option>
+                </template>
+            </select>
+            <select x-model="filters.level" @change="fetchData()"
+                    class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <option value="">全部级别</option>
+                <option value="info">ℹ info</option>
+                <option value="warning">⚠ warning</option>
+                <option value="critical">🚨 critical</option>
+            </select>
+            <input type="date" x-model="filters.date_from" @change="fetchData()"
+                   class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <span class="text-gray-400 text-sm">至</span>
+            <input type="date" x-model="filters.date_to" @change="fetchData()"
+                   class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <div class="flex items-center gap-2 ml-auto">
+                <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+                    <input type="checkbox" x-model="autoRefresh" @change="toggleRefresh" class="accent-blue-500">
+                    自动刷新
+                </label>
+                <button @click="clearHistory()"
+                        class="text-xs px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors">
+                    清空历史
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 推送列表 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <table class="w-full text-sm" x-show="data.items?.length">
+            <thead class="bg-gray-50 text-gray-500">
+                <tr>
+                    <th class="text-left px-4 py-2">时间</th>
+                    <th class="text-left px-4 py-2">渠道</th>
+                    <th class="text-left px-4 py-2">级别</th>
+                    <th class="text-left px-4 py-2">标题</th>
+                    <th class="text-left px-4 py-2">内容摘要</th>
+                    <th class="text-center px-4 py-2">状态</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="item in data.items" :key="item.time + item.title">
+                    <tr class="border-t border-gray-50 hover:bg-gray-50">
+                        <td class="px-4 py-2 text-gray-500 text-xs whitespace-nowrap" x-text="item.time"></td>
+                        <td class="px-4 py-2">
+                            <span class="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600" x-text="item.channel"></span>
+                        </td>
+                        <td class="px-4 py-2">
+                            <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                  :class="{
+                                      'bg-blue-100 text-blue-700': item.level === 'info',
+                                      'bg-yellow-100 text-yellow-700': item.level === 'warning',
+                                      'bg-red-100 text-red-700': item.level === 'critical',
+                                  }"
+                                  x-text="item.level"></span>
+                        </td>
+                        <td class="px-4 py-2 font-medium text-gray-800 text-xs max-w-[160px] truncate" x-text="item.title"></td>
+                        <td class="px-4 py-2 text-gray-500 text-xs max-w-[240px] truncate"
+                            x-text="item.content?.slice(0, 50)"></td>
+                        <td class="px-4 py-2 text-center">
+                            <span x-show="item.success" class="text-green-500 text-xs">✓</span>
+                            <span x-show="!item.success" class="text-red-500 text-xs cursor-help" :title="item.skip_reason || '失败'">✗</span>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        <div x-show="!data.items?.length" class="p-8 text-center text-gray-400 text-sm">暂无推送记录</div>
+    </div>
+
+    <!-- 分页 -->
+    <div class="flex items-center justify-between mt-4 text-sm" x-show="data.total_pages > 1">
+        <span class="text-gray-500" x-text="`共 ${data.total} 条，第 ${data.page}/${data.total_pages} 页`"></span>
+        <div class="flex gap-1">
+            <button @click="goPage(1)" :disabled="data.page<=1"
+                    class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">首页</button>
+            <button @click="goPage(data.page-1)" :disabled="data.page<=1"
+                    class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">上一页</button>
+            <template x-for="p in pageButtons" :key="p">
+                <button @click="goPage(p)"
+                        :class="p === data.page ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 hover:bg-gray-50'"
+                        class="px-3 py-1 rounded border text-xs"
+                        :disabled="p === data.page"
+                        x-text="p"></button>
+            </template>
+            <button @click="goPage(data.page+1)" :disabled="data.page>=data.total_pages"
+                    class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">下一页</button>
+            <button @click="goPage(data.total_pages)" :disabled="data.page>=data.total_pages"
+                    class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50 text-xs">末页</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function pushHistory() {
+    return {
+        data: { items: [], total: 0, page: 1, total_pages: 1 },
+        filters: { channel: '', level: '', date_from: '', date_to: '' },
+        autoRefresh: false,
+        refreshTimer: null,
+        channelOptions: [],
+
+        async fetchData() {
+            const params = new URLSearchParams();
+            params.set('page', String(this.data.page || 1));
+            params.set('page_size', '20');
+            if (this.filters.channel) params.set('channel', this.filters.channel);
+            if (this.filters.level) params.set('level', this.filters.level);
+            if (this.filters.date_from) params.set('date_from', this.filters.date_from);
+            if (this.filters.date_to) params.set('date_to', this.filters.date_to);
+            const resp = await fetch('/api/push/history?' + params.toString());
+            this.data = await resp.json();
+            // 更新渠道选项
+            if (!this.channelOptions.length) {
+                this.loadChannelOptions();
+            }
+        },
+        async loadChannelOptions() {
+            const resp = await fetch('/api/push/settings');
+            const cfg = await resp.json();
+            this.channelOptions = Object.entries(cfg.channels || {}).map(([key, ch]) => ({
+                key, name: ch.name || key
+            }));
+        },
+        goPage(p) {
+            if (p < 1 || p > this.data.total_pages) return;
+            this.data.page = p;
+            this.fetchData();
+        },
+        get pageButtons() {
+            const cur = this.data.page;
+            const total = this.data.total_pages;
+            const pages = [];
+            const start = Math.max(1, cur - 2);
+            const end = Math.min(total, cur + 2);
+            for (let i = start; i <= end; i++) pages.push(i);
+            return pages;
+        },
+        toggleRefresh() {
+            if (this.autoRefresh) {
+                this.refreshTimer = setInterval(() => {
+                    this.data.page = 1;
+                    this.fetchData();
+                }, 10000);
+            } else {
+                clearInterval(this.refreshTimer);
+            }
+        },
+        async clearHistory() {
+            if (!confirm('确认清空所有推送历史？此操作不可恢复。')) return;
+            await fetch('/api/push/history/clear', { method: 'POST' });
+            this.fetchData();
+        }
+    }
+}
+</script>
+{% endblock %}

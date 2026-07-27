@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}信号历史 - StockMonitor{% endblock %}
+{% block content %}
+<div x-data="signalsPage()" x-init="fetchData()" class="fade-in">
+    <h2 class="text-xl font-bold text-gray-800 mb-4">信号历史</h2>
+    <p class="text-xs text-gray-400 mb-4" x-text="date + ' · ' + data.total + ' 条信号'"></p>
+
+    <!-- 持仓信号 -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-4">
+        <div class="p-4 border-b border-gray-100 font-medium text-sm text-gray-700">
+            持仓信号 <span class="text-gray-400 font-normal text-xs" x-text="'(' + data.held.length + ' 只标的)'"></span>
+        </div>
+        <template x-for="g in data.held" :key="g.symbol">
+            <div class="border-b border-gray-50 last:border-0">
+                <div @click="g.open = !g.open" class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <span class="font-mono text-sm font-medium" x-text="g.symbol + '[' + g.name + ']'"></span>
+                        <span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-600" x-text="g.count + ' 条'"></span>
+                    </div>
+                    <span class="text-gray-400 text-xs" x-text="g.open ? '收起' : '展开'"></span>
+                </div>
+                <div x-show="g.open" class="px-4 pb-3">
+                    <template x-for="s in g.items" :key="s.id">
+                        <div class="flex items-center gap-3 py-1.5 text-xs border-b border-gray-50 last:border-0">
+                            <span class="px-1.5 py-0.5 rounded text-xs font-medium"
+                                  :class="s.action === 'buy' || s.action === 'filtered' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'"
+                                  x-text="s.action === 'filtered' ? '买入' : s.action === 'buy' ? '买入' : '卖出'"></span>
+                            <span class="text-gray-500 w-20" x-text="s.timestamp?.slice(11,19)"></span>
+                            <span class="font-mono" x-text="s.price?.toFixed(2)"></span>
+                            <span class="text-gray-400" x-text="s.strategy_name"></span>
+                            <span class="text-gray-500 flex-1 truncate" x-text="s.reason"></span>
+                            <span x-show="s.action==='filtered'" class="text-yellow-500 text-xs ml-1">⚠ 被过滤</span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+        <div x-show="!data.held.length" class="p-8 text-center text-gray-400 text-sm">今日无持仓信号</div>
+    </div>
+
+    <!-- 自选信号 -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div class="p-4 border-b border-gray-100 font-medium text-sm text-gray-700">
+            自选信号 <span class="text-gray-400 font-normal text-xs" x-text="'(' + data.other.length + ' 只标的)'"></span>
+        </div>
+        <template x-for="g in data.other" :key="g.symbol">
+            <div class="border-b border-gray-50 last:border-0">
+                <div @click="g.open = !g.open" class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <span class="font-mono text-sm font-medium text-gray-600" x-text="g.symbol + '[' + g.name + ']'"></span>
+                        <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500" x-text="g.count + ' 条'"></span>
+                    </div>
+                    <span class="text-gray-400 text-xs" x-text="g.open ? '收起' : '展开'"></span>
+                </div>
+                <div x-show="g.open" class="px-4 pb-3">
+                    <template x-for="s in g.items" :key="s.id">
+                        <div class="flex items-center gap-3 py-1.5 text-xs border-b border-gray-50 last:border-0">
+                            <span class="px-1.5 py-0.5 rounded text-xs font-medium"
+                                  :class="s.action === 'buy' || s.action === 'filtered' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'"
+                                  x-text="s.action === 'filtered' ? '买入' : s.action === 'buy' ? '买入' : '卖出'"></span>
+                            <span class="text-gray-500 w-20" x-text="s.timestamp?.slice(11,19)"></span>
+                            <span class="font-mono" x-text="s.price?.toFixed(2)"></span>
+                            <span class="text-gray-400" x-text="s.strategy_name"></span>
+                            <span class="text-gray-500 flex-1 truncate" x-text="s.reason"></span>
+                            <span x-show="s.action==='filtered'" class="text-yellow-500 text-xs ml-1">⚠ 被过滤</span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+        <div x-show="!data.other.length" class="p-8 text-center text-gray-400 text-sm">今日无自选信号</div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function signalsPage() {
+    return {
+        data: { held: [], other: [], total: 0 },
+        date: new Date().toISOString().slice(0, 10),
+        async fetchData() {
+            const resp = await fetch('/api/signals/full');
+            const d = await resp.json();
+            // add open state
+            (d.held || []).forEach(g => g.open = true);
+            (d.other || []).forEach(g => g.open = true);
+            this.data = d;
+        }
+    }
+}
+</script>
+{% endblock %}

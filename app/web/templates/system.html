@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}系统状态 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="systemPage()" x-init="fetchStatus(); startLogPoll()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">系统状态</h2>
+
+    <!-- 状态卡片 -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">调度器</p>
+            <p class="text-lg font-bold mt-1" :class="status.scheduler_running ? 'text-green-600' : 'text-red-500'"
+               x-text="status.scheduler_running ? '运行中' : (status.scheduler_paused ? '已暂停' : '已停止')"></p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">上次监测</p>
+            <p class="text-sm mt-1 text-gray-700" x-text="status.last_run || '从未'"></p>
+            <p class="text-xs text-gray-500 mt-0.5" x-text="status.last_run_status || ''"></p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">运行次数</p>
+            <p class="text-2xl font-bold text-gray-800 mt-1" x-text="status.run_count || 0"></p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+            <p class="text-gray-400 text-xs uppercase tracking-wider">今日推送</p>
+            <p class="text-2xl font-bold text-gray-800 mt-1" x-text="status.today_notifications || 0"></p>
+        </div>
+    </div>
+
+    <!-- 控制按钮 -->
+    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 mb-6">
+        <div class="flex items-center gap-3">
+            <span class="text-sm text-gray-600">监测控制:</span>
+            <button @click="control('pause')"
+                    class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    :disabled="!status.scheduler_running || status.scheduler_paused">
+                暂停监测
+            </button>
+            <button @click="control('resume')"
+                    class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    :disabled="!status.scheduler_paused">
+                恢复监测
+            </button>
+            <button @click="fetchStatus()"
+                    class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                刷新状态
+            </button>
+        </div>
+        <p x-show="ctrlMsg" class="text-sm mt-3" x-text="ctrlMsg"></p>
+    </div>
+
+    <!-- 实时日志 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 flex justify-between items-center">
+            <span>系统日志</span>
+            <label class="flex items-center gap-2 text-xs text-gray-500">
+                <input type="checkbox" x-model="autoRefresh" @change="toggleAutoRefresh()" class="accent-blue-500">
+                自动刷新 (5s)
+            </label>
+        </div>
+        <div class="bg-gray-900 text-gray-300 p-4 font-mono text-xs leading-relaxed max-h-[500px] overflow-y-auto rounded-b-xl"
+             x-ref="logContainer">
+            <div x-show="!logs.length" class="text-gray-600">暂无日志</div>
+            <template x-for="line in logs" :key="line">
+                <div class="whitespace-pre-wrap hover:bg-gray-800 px-1" x-text="line"></div>
+            </template>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function systemPage() {
+    return {
+        status: {},
+        logs: [],
+        autoRefresh: true,
+        ctrlMsg: '',
+        logTimer: null,
+        async fetchStatus() {
+            const resp = await fetch('/api/system/status');
+            this.status = await resp.json();
+        },
+        async fetchLogs() {
+            const resp = await fetch('/api/system/logs');
+            const data = await resp.json();
+            this.logs = data.lines || [];
+        },
+        async control(action) {
+            const resp = await fetch('/api/system/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action })
+            });
+            const r = await resp.json();
+            this.ctrlMsg = r.status === 'ok' ? `操作成功: ${action}` : (r.error || '操作失败');
+            await this.fetchStatus();
+        },
+        toggleAutoRefresh() {
+            if (this.autoRefresh) {
+                this.logTimer = setInterval(() => this.fetchLogs(), 5000);
+            } else {
+                clearInterval(this.logTimer);
+            }
+        },
+        startLogPoll() {
+            this.fetchLogs();
+            this.logTimer = setInterval(() => this.fetchLogs(), 5000);
+        }
+    }
+}
+</script>
+{% endblock %}

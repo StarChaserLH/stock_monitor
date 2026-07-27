@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# Secrets
+.env
+*.local.yaml
+config.yaml
+
+# Data (generated at runtime)
+data/kline.db
+data/kline_old.db
+data/strategies/strategies.db
+data/strategies/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].py
+data/positions.json
+data/positions - 副本.json
+data/symbol_groups.json
+
+# Logs
+logs/
+
+# Email previews
+templates/email/
+
+# OS
+.DS_Store
+Thumbs.db

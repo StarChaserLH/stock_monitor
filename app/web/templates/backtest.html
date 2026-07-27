@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block title %}策略回测 - StockMonitor{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<div x-data="backtestPage()" class="fade-in">
+    <h2 class="text-xl font-bold text-gray-800 mb-6">策略回测</h2>
+
+    <!-- 配置表单 -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">起始日期</label>
+                <input x-model="form.start_date" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">结束日期</label>
+                <input x-model="form.end_date" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">初始资金</label>
+                <input x-model.number="form.capital" type="number" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">ETF 手数</label>
+                <input x-model.number="form.etf_lot" type="number" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">股票 手数</label>
+                <input x-model.number="form.stock_lot" type="number" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            </div>
+        </div>
+        <div class="flex items-center gap-4 mb-3 mt-1">
+            <label class="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+                <input type="checkbox" x-model="form.combined"> 组合回测
+            </label>
+            <label class="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+                <input type="checkbox" x-model="form.compare"> 对比模式
+            </label>
+            <label class="text-xs text-gray-500 whitespace-nowrap">
+                分组预选 <select x-model="form.group" @change="applyGroup()" class="border border-gray-300 rounded px-2 py-1 text-xs ml-1">
+                    <option value="">-- 手动选择 --</option>
+                    <template x-for="g in groups.default" :key="g">
+                        <option :value="g" x-text="g"></option>
+                    </template>
+                </select>
+            </label>
+        </div>
+
+        <!-- 策略选择 -->
+        <div class="mb-3">
+            <label class="block text-xs text-gray-500 mb-1">策略 <span class="text-gray-400" x-show="form.combined">（多选）</span></label>
+            <div class="flex flex-wrap gap-2">
+                <template x-for="s in strategies" :key="s.id">
+                    <label class="flex items-center gap-1 px-3 py-1.5 rounded border text-xs cursor-pointer hover:bg-blue-50 transition-colors"
+                           :class="isSelected(s.id) ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'">
+                        <input type="checkbox" :value="s.id" :checked="isSelected(s.id)"
+                               @change="toggleStrategy(s.id)" class="sr-only">
+                        <span x-text="s.name"></span>
+                    </label>
+                </template>
+            </div>
+        </div>
+
+        <!-- 对比模式：分组选择 -->
+        <div class="mb-3" x-show="form.compare">
+            <label class="block text-xs text-gray-500 mb-1">对比分组</label>
+            <div class="flex flex-wrap gap-2">
+                <template x-for="g in groups.default" :key="g">
+                    <button @click="toggleCompareGroup(g)"
+                            class="px-3 py-1 rounded text-xs border transition-colors"
+                            :class="compareGroups.includes(g) ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'">
+                        <span x-text="g"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        <!-- 标的标签 -->
+        <div class="mb-3">
+            <label class="block text-xs text-gray-500 mb-1">回测标的 <span class="text-gray-400" x-text="'(' + form.symbols.length + ')'"></span></label>
+            <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                <template x-for="s in allSymbols" :key="s.symbol">
+                    <button @click="toggleSymbol(s.symbol)"
+                            class="px-2 py-0.5 rounded text-xs border transition-colors"
+                            :class="form.symbols.includes(s.symbol) ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'">
+                        <span class="font-mono" x-text="s.symbol"></span><span class="ml-0.5" x-text="s.name !== s.symbol ? s.name : ''"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex gap-3">
+            <button @click="run()" :disabled="running"
+                    class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded px-6 py-2 text-sm font-medium transition-colors">
+                <span x-show="!running">开始回测</span>
+                <span x-show="running"><span class="spinner"></span> 回测中...</span>
+            </button>
+        </div>
+        <p x-show="error" class="text-red-500 text-xs mt-2" x-text="error"></p>
+
+        <div class="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3 space-y-1">
+            <p class="font-medium text-gray-500">回测条件说明</p>
+            <p>日均线策略需要 <b>21/201</b> 条以上 K 线才触发信号 · RSI / 布林带需要 <b>15/61</b> 条</p>
+            <p>大盘择时过滤（510300）：MA<b>200</b> 下方禁止买入 · MA<b>60</b> 下方信号强度 ×<b>0.7</b></p>
+            <p>交易量：以上方输入为准（ETF/股票） · 同标的同日同方向 <b>去重一次</b></p>
+            <p>组合模式：多策略共享资金池，信号按 <b>强度降序</b> 抢资金 · 单策略模式独立计算</p>
+        </div>
+    </div>
+
+    <!-- 对比结果区 -->
+    <div x-show="compareResult" class="fade-in space-y-4 mb-6">
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-500">
+                    <tr>
+                        <th class="text-left px-4 py-2">分组</th>
+                        <th class="text-right px-4 py-2">标数</th>
+                        <th class="text-right px-4 py-2">总收益</th>
+                        <th class="text-right px-4 py-2">年化</th>
+                        <th class="text-right px-4 py-2">最大回撤</th>
+                        <th class="text-right px-4 py-2">夏普</th>
+                        <th class="text-right px-4 py-2">胜率</th>
+                        <th class="text-right px-4 py-2">交易</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="r in compareResult" :key="r.group">
+                        <tr class="border-t border-gray-50 hover:bg-gray-50" :class="r.error ? 'text-red-400' : ''">
+                            <td class="px-4 py-2 font-medium" x-text="r.group"></td>
+                            <td class="px-4 py-2 text-right" x-text="r.symbols_count || '-'"></td>
+                            <td class="px-4 py-2 text-right" :class="(r.total_return||0) >= 0 ? 'text-red-500' : 'text-green-500'" x-text="r.error ? r.error : ((r.total_return >= 0 ? '+' : '') + r.total_return.toFixed(2) + '%')"></td>
+                            <td class="px-4 py-2 text-right" x-text="r.error ? '' : ((r.annual_return >= 0 ? '+' : '') + r.annual_return.toFixed(2) + '%')"></td>
+                            <td class="px-4 py-2 text-right text-green-500" x-text="r.error ? '' : r.max_drawdown.toFixed(2) + '%'"></td>
+                            <td class="px-4 py-2 text-right font-mono" x-text="r.error ? '' : r.sharpe_ratio.toFixed(2)"></td>
+                            <td class="px-4 py-2 text-right" x-text="r.error ? '' : r.win_rate.toFixed(1) + '%'"></td>
+                            <td class="px-4 py-2 text-right" x-text="r.error ? '' : r.total_trades"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        <!-- 对比权益曲线 -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">权益曲线对比</h3>
+            <div class="h-64"><canvas id="compareChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- 结果区 -->
+    <div x-show="result" class="fade-in space-y-6">
+
+        <div class="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <template x-for="card in metricCards" :key="card.label">
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center">
+                    <p class="text-xs text-gray-400" x-text="card.label"></p>
+                    <p class="text-lg font-bold" :class="card.color" x-text="card.value"></p>
+                </div>
+            </template>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">详细指标</h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                <div><span class="text-gray-400">总交易次数</span><p class="font-mono font-bold" x-text="result.metrics?.total_trades"></p></div>
+                <div><span class="text-gray-400">胜率</span><p class="font-mono font-bold" :class="(result.metrics?.win_rate||0) >= 50 ? 'text-red-500' : 'text-green-500'" x-text="(result.metrics?.win_rate||0).toFixed(1) + '%'"></p></div>
+                <div><span class="text-gray-400">盈亏比</span><p class="font-mono font-bold" x-text="(result.metrics?.profit_factor||0).toFixed(2)"></p></div>
+                <div><span class="text-gray-400">平均盈利</span><p class="font-mono font-bold text-red-500" x-text="'+' + (result.metrics?.avg_win_pct||0).toFixed(2) + '%'"></p></div>
+                <div><span class="text-gray-400">平均亏损</span><p class="font-mono font-bold text-green-500" x-text="(result.metrics?.avg_loss_pct||0).toFixed(2) + '%'"></p></div>
+                <div><span class="text-gray-400">年化波动率</span><p class="font-mono font-bold" x-text="(result.metrics?.volatility||0).toFixed(1) + '%'"></p></div>
+                <div><span class="text-gray-400">夏普比率</span><p class="font-mono font-bold" x-text="(result.metrics?.sharpe_ratio||0).toFixed(2)"></p></div>
+                <div><span class="text-gray-400">卡玛比率</span><p class="font-mono font-bold" x-text="(result.metrics?.calmar_ratio||0).toFixed(2)"></p></div>
+                <div><span class="text-gray-400">基准收益</span><p class="font-mono font-bold" x-text="(result.metrics?.benchmark_return||0).toFixed(2) + '%'"></p></div>
+                <div><span class="text-gray-400">超额收益</span><p class="font-mono font-bold" :class="(result.metrics?.excess_return||0) >= 0 ? 'text-red-500' : 'text-green-500'" x-text="((result.metrics?.excess_return||0) >= 0 ? '+' : '') + (result.metrics?.excess_return||0).toFixed(2) + '%'"></p></div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">权益曲线</h3>
+            <div class="h-64"><canvas id="equityChart"></canvas></div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div class="p-4 border-b border-gray-100">
+                <h3 class="text-sm font-semibold text-gray-700">交易记录 <span class="text-gray-400 font-normal text-xs" x-text="'(' + (result.trades?.length || 0) + ' 笔)'"></span></h3>
+            </div>
+            <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                <table class="w-full text-sm" x-show="result.trades?.length">
+                    <thead class="bg-gray-50 text-gray-500 sticky top-0">
+                        <tr><th class="text-left px-4 py-2">日期</th><th class="text-left px-4 py-2">标的</th><th class="text-left px-4 py-2">方向</th><th class="text-right px-4 py-2">价格</th><th class="text-right px-4 py-2">数量</th></tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="t in result.trades" :key="t.date + t.symbol + t.action + Math.random()">
+                            <tr class="border-t border-gray-50">
+                                <td class="px-4 py-1.5 text-xs text-gray-500" x-text="t.date"></td>
+                                <td class="px-4 py-1.5 text-xs">
+                                    <span class="font-mono" x-text="t.symbol"></span>
+                                    <span class="text-gray-500 ml-1" x-text="'[' + symbolName(t.symbol) + ']'"></span>
+                                </td>
+                                <td class="px-4 py-1.5"><span class="px-1.5 py-0.5 rounded text-xs" :class="t.action === 'buy' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'" x-text="t.action==='buy'?'买入':'卖出'"></span></td>
+                                <td class="px-4 py-1.5 text-right text-xs font-mono" x-text="t.price?.toFixed(3)"></td>
+                                <td class="px-4 py-1.5 text-right text-xs" x-text="t.quantity"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div x-show="!result.trades?.length" class="p-8 text-center text-gray-400 text-sm">无交易记录</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function backtestPage() {
+    return {
+        strategies: [],
+        form: { start_date: '2023-01-01', end_date: '2026-01-01', capital: 100000, etf_lot: 3000, stock_lot: 300, combined: false, compare: false, group: '全部', selected_ids: [], symbols: [] },
+            groups: { default: [] },
+            allSymbols: [],
+            compareGroups: [],
+            compareResult: null,
+            compareChart: null,
+        running: false,
+        result: null,
+        error: '',
+        chart: null,
+
+        get metricCards() {
+            const m = this.result?.metrics;
+            if (!m) return [];
+            return [
+                { label: '总收益率', value: (m.total_return >= 0 ? '+' : '') + m.total_return.toFixed(2) + '%', color: m.total_return >= 0 ? 'text-red-500' : 'text-green-500' },
+                { label: '年化收益', value: (m.annual_return >= 0 ? '+' : '') + m.annual_return.toFixed(2) + '%', color: m.annual_return >= 0 ? 'text-red-500' : 'text-green-500' },
+                { label: '最大回撤', value: m.max_drawdown.toFixed(2) + '%', color: 'text-green-500' },
+                { label: '夏普比率', value: m.sharpe_ratio.toFixed(2), color: m.sharpe_ratio >= 1 ? 'text-red-500' : 'text-gray-700' },
+                { label: '胜率', value: m.win_rate.toFixed(1) + '%', color: m.win_rate >= 50 ? 'text-red-500' : 'text-green-500' },
+                { label: '终值', value: m.final_value.toLocaleString('zh', { minimumFractionDigits: 0 }), color: 'text-gray-700' },
+            ];
+        },
+
+        isSelected(id) { return this.form.selected_ids.includes(id); },
+
+        toggleStrategy(id) {
+            const idx = this.form.selected_ids.indexOf(id);
+            if (idx >= 0) this.form.selected_ids.splice(idx, 1);
+            else this.form.selected_ids.push(id);
+        },
+
+        async init() {
+            try {
+                const [sResp, gResp, iResp] = await Promise.all([
+                    fetch('/api/backtest/strategies'),
+                    fetch('/api/groups'),
+                    fetch('/api/instruments'),
+                ]);
+                this.strategies = await sResp.json();
+                this.groups = await gResp.json();
+                const inst = await iResp.json();
+                this.allSymbols = (inst.list || []).map(r => ({symbol: r.symbol, name: r.name || r.symbol}));
+                this.form.symbols = this.allSymbols.map(s => s.symbol);
+            } catch (e) {}
+        },
+        toggleCompareGroup(name) {
+            const idx = this.compareGroups.indexOf(name);
+            if (idx >= 0) this.compareGroups.splice(idx, 1);
+            else this.compareGroups.push(name);
+        },
+        symbolName(sym) {
+            const found = this.allSymbols.find(s => s.symbol === sym);
+            return found ? found.name : '';
+        },
+        toggleSymbol(sym) {
+            const idx = this.form.symbols.indexOf(sym);
+            if (idx >= 0) this.form.symbols.splice(idx, 1);
+            else this.form.symbols.push(sym);
+        },
+        applyGroup() {
+            const g = this.form.group;
+            if (!g) return;
+            // 调用 API 解析分组得到标的列表
+            fetch('/api/groups/resolve?name=' + encodeURIComponent(g))
+                .then(r => r.json())
+                .then(d => { if (d.symbols) this.form.symbols = d.symbols; });
+        },
+
+        async run() {
+            if (!this.form.selected_ids.length) { this.error = '请至少选择一个策略'; return; }
+            if (!this.form.start_date || !this.form.end_date) { this.error = '请填写日期'; return; }
+            this.running = true; this.error = ''; this.result = null; this.compareResult = null;
+            try {
+                if (this.form.compare && this.compareGroups.length) {
+                    const resp = await fetch('/api/backtest/compare', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ strategy_id: this.form.selected_ids[0], groups: this.compareGroups, start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, etf_lot: this.form.etf_lot, stock_lot: this.form.stock_lot })
+                    });
+                    const data = await resp.json();
+                    if (data.error) { this.error = data.error; }
+                    else { this.compareResult = data.results; this.$nextTick(() => this.drawCompareChart()); }
+                } else if (this.form.combined) {
+                    const resp = await fetch('/api/backtest/combined', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ strategy_ids: this.form.selected_ids, start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, symbols: this.form.symbols, etf_lot: this.form.etf_lot, stock_lot: this.form.stock_lot })
+                    });
+                    const data = await resp.json();
+                    if (data.error) this.error = data.error;
+                    else { this.result = data; this.$nextTick(() => this.drawChart()); }
+                } else {
+                    const resp = await fetch('/api/backtest', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ strategy_id: this.form.selected_ids[0], start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, symbols: this.form.symbols, etf_lot: this.form.etf_lot, stock_lot: this.form.stock_lot })
+                    });
+                    const data = await resp.json();
+                    if (data.error) this.error = data.error;
+                    else { this.result = data; this.$nextTick(() => this.drawChart()); }
+                }
+            } catch (e) { this.error = '网络错误: ' + e.message; }
+            this.running = false;
+        },
+        drawCompareChart() {
+            if (this.compareChart) this.compareChart.destroy();
+            const ctx = document.getElementById('compareChart');
+            if (!ctx) return;
+            const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4'];
+            const datasets = (this.compareResult || []).filter(r => r.equity).map((r, i) => ({
+                label: r.group, data: r.equity.map(e => e.value),
+                borderColor: colors[i % colors.length], pointRadius: 0, borderWidth: 1.5, tension: 0.1,
+            }));
+            this.compareChart = new Chart(ctx, {
+                type: 'line', data: { labels: (this.compareResult[0]?.equity || []).map(e => e.date), datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { font: { size: 10 }, callback: v => (v / 10000).toFixed(0) + '万' }, grid: { color: '#f1f5f9' } },
+                    },
+                },
+            });
+        },
+
+        drawChart() {
+            if (this.chart) this.chart.destroy();
+            const eq = this.result?.equity || [];
+            const ctx = document.getElementById('equityChart');
+            if (!ctx) return;
+            this.chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: eq.map(e => e.date),
+                    datasets: [{ label: '权益', data: eq.map(e => e.value), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.1 }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { font: { size: 10 }, callback: v => (v / 10000).toFixed(0) + '万' }, grid: { color: '#f1f5f9' } },
+                    },
+                },
+            });
+        },
+    };
+}
+</script>
+{% endblock %}

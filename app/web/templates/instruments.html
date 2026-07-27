@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}标的管理 - StockMonitor{% endblock %}
+
+{% block content %}
+<div x-data="watchlist()" x-init="fetchData()" class="fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-4">自选股</h2>
+    <p class="text-xs text-gray-400 mb-4">{{ config.symbols.mode }} 模式 · <span x-text="list.length"></span> 只标的</p>
+
+    <!-- 搜索 + 添加 -->
+    <div class="flex items-center gap-3 mb-4">
+        <div class="relative flex-1 max-w-sm">
+            <input type="text" x-model="search" @input.debounce.300="doSearch()"
+                   placeholder="输入代码或名称搜索添加..."
+                   class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div x-show="searchResults.length" @click.away="searchResults=[]"
+                 class="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-60 overflow-y-auto">
+                <template x-for="r in searchResults" :key="r.symbol">
+                    <div @click="addSymbol(r.symbol); search=''; searchResults=[]"
+                         class="px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b border-gray-50 flex justify-between">
+                        <span><span class="font-mono text-blue-600" x-text="r.symbol"></span> <span class="text-gray-500" x-text="r.name"></span></span>
+                        <span x-show="r.sector" class="text-xs text-gray-400" x-text="r.sector"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+        <span class="text-xs text-gray-400" x-show="searching"><span class="spinner"></span></span>
+    </div>
+
+    <!-- 自选表格 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-500">
+                <tr>
+                    <th class="text-left px-4 py-2 w-40">标的</th>
+                    <th class="text-right px-4 py-2">最新价</th>
+                    <th class="text-right px-4 py-2">涨跌幅</th>
+                    <th class="text-right px-4 py-2">成交额</th>
+                    <th class="text-left px-4 py-2">板块</th>
+                    <th class="text-center px-4 py-2 w-16">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="r in list" :key="r.symbol">
+                    <tr class="border-t border-gray-50 hover:bg-gray-50">
+                        <td class="px-4 py-2.5 text-xs whitespace-nowrap"><span class="font-mono font-medium" x-text="r.symbol"></span><span class="text-gray-500 ml-1" x-text="'[' + r.name + ']'"></span></td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs" x-text="r.price?.toFixed(4)"></td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs"
+                            :class="(r.pct_change||0) >= 0 ? 'text-red-500' : 'text-green-500'"
+                            x-text="r.pct_change != null ? ((r.pct_change > 0 ? '+' : '') + r.pct_change.toFixed(2) + '%') : '-'"></td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs text-gray-500"
+                            x-text="r.amount ? (r.amount / 1e8).toFixed(2) + '亿' : '-'"></td>
+                        <td class="px-4 py-2.5 text-xs text-gray-500" x-text="r.sector || '-'"></td>
+                        <td class="px-4 py-2.5 text-center">
+                            <button @click="removeSymbol(r.symbol)"
+                                    class="text-gray-400 hover:text-red-500 text-sm">✕</button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        <div x-show="!list.length" class="p-8 text-center text-gray-400 text-sm">暂无自选标的</div>
+    </div>
+
+    <div x-show="loading" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 shadow-2xl flex items-center gap-3">
+            <div class="spinner"></div><span class="text-gray-600 text-sm">处理中...</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function watchlist() {
+    return {
+        list: [], search: '', searchResults: [], searching: false, loading: false,
+        searchTimer: null,
+
+        async fetchData() {
+            const resp = await fetch('/api/instruments');
+            const d = await resp.json();
+            this.list = d.list || [];
+        },
+        async doSearch() {
+            const q = this.search.trim();
+            if (q.length < 1) { this.searchResults = []; return; }
+            this.searching = true;
+            try {
+                const resp = await fetch('/api/instruments/search?q=' + encodeURIComponent(q));
+                this.searchResults = await resp.json();
+            } catch(e) {}
+            this.searching = false;
+        },
+        async addSymbol(code) {
+            this.loading = true;
+            await fetch('/api/instruments/add', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({symbol: code})
+            });
+            await this.fetchData();
+            this.loading = false;
+        },
+        async removeSymbol(code) {
+            if (!confirm('移除 ' + code + '？')) return;
+            this.loading = true;
+            await fetch('/api/instruments/remove', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({symbol: code})
+            });
+            await this.fetchData();
+            this.loading = false;
+        }
+    }
+}
+</script>
+{% endblock %}
