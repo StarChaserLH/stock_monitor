@@ -34,7 +34,7 @@
 ### 安装与配置
 
 ```bash
-git clone https://github.com/yourname/stock-monitor.git  # <!-- TODO: 替换 -->
+git clone https://github.com/StarChaserLH/stock_monitor
 cd stock-monitor/stock_monitor
 pip install -r requirements.txt
 cp config.yaml.example config.yaml  # 编辑自选股和邮箱
