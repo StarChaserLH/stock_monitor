@@ -1,10 +1,10 @@
 <div align="center">
-
+  
 # StockMonitor — A股行情监测系统
+</div>
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/tests-161%20passed-brightgreen" alt="Tests">
   <img src="https://img.shields.io/badge/status-Active-success" alt="Status">
 </p>
 
