@@ -63,19 +63,37 @@ with open(os.path.join(out, 'lof_report.html'), 'w', encoding='utf-8') as f:
     f.write(notifier._format_html(n2))
 print(f'lof_report.html ({len(notifier._format_html(n2))} chars)')
 
-# ── 3. 信号通知 ──
-body3 = (
-    "<div style='font-family:system-ui,sans-serif;padding:8px 0'>"
+# ── 3. 持仓信号 ──
+body_held = (
+    "<div style='padding:8px 0;border-bottom:1px solid #f1f5f9'>"
     "<p style='margin:0;font-size:16px;font-weight:700;color:#16a34a'>卖出</p>"
-    "<p style='margin:6px 0 0;font-size:15px'>512980[传媒ETF广发]</p>"
-    "<p style='margin:2px 0;font-size:13px;color:#64748b'>策略: ATR动态止盈 · 当前价 0.801 · 3000 份</p>"
-    "<p style='margin:4px 0;font-size:13px;color:#334155'>ATR14=0.108, 2×ATR=0.216, 20日高点=1.638, 止损线=1.422, 现价0.801低于止损线</p>"
-    "<p style='margin:0;font-size:11px;color:#94a3b8'>强度: 1.0</p>"
+    "<p style='margin:6px 0 0;font-size:15px'>513050[中概互联网ETF]</p>"
+    "<p style='margin:2px 0;font-size:13px;color:#64748b'>策略: RSI超卖反弹 · 当前价 1.10</p>"
+    "<p style='margin:4px 0;font-size:13px;color:#334155'>RSI超买回落(RSI 79→77)</p>"
+    "<p style='margin:0;font-size:11px;color:#94a3b8'>强度: 0.4</p>"
+    "</div>"
+    "<div style='padding:8px 0;border-bottom:1px solid #f1f5f9'>"
+    "<p style='margin:0;font-size:16px;font-weight:700;color:#16a34a'>卖出</p>"
+    "<p style='margin:6px 0 0;font-size:15px'>563020[红利低波ETF]</p>"
+    "<p style='margin:2px 0;font-size:13px;color:#64748b'>策略: RSI超卖反弹 · 当前价 1.17</p>"
+    "<p style='margin:4px 0;font-size:13px;color:#334155'>RSI超买回落(RSI 81→74)</p>"
+    "<p style='margin:0;font-size:11px;color:#94a3b8'>强度: 0.8</p>"
     "</div>"
 )
-n3 = Notification(title="交易信号", content=body3, level=NotifyLevel.WARNING)
-with open(os.path.join(out, 'signal_alert.html'), 'w', encoding='utf-8') as f:
+n3 = Notification(title="持仓信号 (2条)", content=body_held, level=NotifyLevel.WARNING)
+with open(os.path.join(out, 'signal_held.html'), 'w', encoding='utf-8') as f:
     f.write(notifier._format_html(n3))
-print(f'signal_alert.html ({len(notifier._format_html(n3))} chars)')
+print(f'signal_held.html ({len(notifier._format_html(n3))} chars)')
+
+# ── 4. 自选信号 ──
+body_watch = (
+    "<span style='color:#16a34a'>卖</span> 512760[芯片ETF国泰]: RSI超卖反弹、移动止盈<br>"
+    "<span style='color:#16a34a'>卖</span> 600703[三安光电]: RSI超卖反弹<br>"
+    "<span style='color:#dc2626'>买</span> 515030[新能源车ETF]: RSI超卖反弹、双均线金叉"
+)
+n4 = Notification(title="自选信号 (2买 8卖)", content=body_watch, level=NotifyLevel.INFO)
+with open(os.path.join(out, 'signal_watch.html'), 'w', encoding='utf-8') as f:
+    f.write(notifier._format_html(n4))
+print(f'signal_watch.html ({len(notifier._format_html(n4))} chars)')
 
 print(f'\nDone -> {out}/')

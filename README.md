@@ -1,15 +1,15 @@
+<div align="center">
+  
+# StockMonitor — A股行情监测系统
+</div>
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/tests-161%20passed-brightgreen" alt="Tests">
-  <!-- TODO: 替换仓库地址 -->
   <img src="https://img.shields.io/badge/status-Active-success" alt="Status">
 </p>
 
-# StockMonitor — A股行情监测系统
-
 面向个人投资者的轻量级行情监测系统，实时盯盘 × AI多策略信号触发 × 回测闭环 × LOF 套利预警 × 邮件推送，量化监测一站搞定。
-
+</div>
 
 ## 功能特性
 

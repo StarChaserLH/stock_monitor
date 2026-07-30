@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-A股量化监测与推送系统 - 主入口。
+StockMonitor — A股行情监测系统 - 主入口。
 
 Usage:
     # 同时启动 Web + 监测（默认）

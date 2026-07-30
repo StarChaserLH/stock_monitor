@@ -79,7 +79,7 @@ def _deep_merge(base: dict, override: dict) -> None:
 
 class SystemConfig(BaseModel):
     name: str = "A股量化监测系统"
-    version: str = "1.0.0"
+    version: str = "1.0.1"
     log_level: str = "INFO"
     log_file: str = "logs/system.log"
     data_dir: str = "data"
