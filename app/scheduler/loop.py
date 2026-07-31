@@ -118,13 +118,34 @@ class MonitorLoop:
             logger.warning("行情数据为空")
             return {"status": "empty_quotes", "duration": time.time() - start}
 
-        # 构建 symbol -> price 映射
+        # 构建 symbol -> price 映射 + 名称映射 + 当日实时 K 线条
         price_map = _build_price_map(quotes)
+        name_map = _build_name_map(quotes)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        realtime_bars = {}
+        o_col = "open" if "open" in quotes.columns else "今开"
+        h_col = "high" if "high" in quotes.columns else "最高"
+        l_col = "low" if "low" in quotes.columns else "最低"
+        for _, r in quotes.iterrows():
+            s = str(r.get("symbol", ""))
+            if len(s) > 6:
+                s = s[2:]
+            if s and s in price_map:
+                realtime_bars[s] = {
+                    "date": today_str,
+                    "open": float(r.get(o_col, 0) or 0),
+                    "high": float(r.get(h_col, 0) or 0),
+                    "low": float(r.get(l_col, 0) or 0),
+                    "close": price_map[s],
+                    "volume": float(r.get("volume", 0) or 0),
+                }
         self._broker.update_market_prices(price_map)
 
+        held_syms = {p["symbol"] for p in self._positions.list_all()}
         signals_generated = 0
         filtered_signals = 0
         trades_executed = 0
+        pending_signals: list[dict] = []  # 全部信号收集器，循环结束后合并推送
 
         # Step 2: 遍历策略 x 标的
         self._market_regime = None  # 每轮重新评估大盘
@@ -140,6 +161,16 @@ class MonitorLoop:
                     hist_data = pd.DataFrame()
                 if hist_data.empty:
                     continue
+                # 追加当日实时 K 线（Sina 日线不含今天）
+                if symbol in realtime_bars:
+                    today_bar = realtime_bars[symbol]
+                    today_row = pd.DataFrame([today_bar], index=[pd.Timestamp(today_bar["date"])])
+                    for col in ["open", "high", "low", "close", "volume"]:
+                        if col in today_row.columns and col not in hist_data.columns:
+                            hist_data[col] = None
+                    hist_data = pd.concat([hist_data, today_row])
+                    hist_data = hist_data[~hist_data.index.duplicated(keep="last")]
+                    hist_data = hist_data.sort_index()
                 try:
                     result = self._engine.execute(strategy.id, context, hist_data)
 
@@ -209,10 +240,12 @@ class MonitorLoop:
                         )
                         if order.status.value == "filled":
                             trades_executed += 1
-                            self._notify_signal(
-                                strategy, symbol, result, order.filled_price,
-                                order.filled_quantity, current_price,
-                            )
+                            pending_signals.append({
+                                "symbol": symbol, "price": order.filled_price,
+                                "action": result["action"], "reason": result["reason"],
+                                "strength": result["strength"], "strategy": strategy.name,
+                                "held": symbol in held_syms,
+                            })
 
                     elif result["action"] == "sell":
                         lot = self._calc_buy_quantity(symbol, 1)
@@ -220,33 +253,45 @@ class MonitorLoop:
                         real_pos = self._positions.get(symbol)
                         if real_pos:
                             qty = min(lot, real_pos["shares"])
+                            pending_signals.append({
+                                "symbol": symbol, "price": current_price,
+                                "action": result["action"], "reason": result["reason"],
+                                "strength": result["strength"], "strategy": strategy.name,
+                                "held": True,
+                            })
                         else:
                             pos = self._broker.get_position(symbol)
                             qty = pos.shares if pos else 0
                             qty = min(lot, qty) if qty > 0 else 0
-                        if qty > 0:
-                            order = self._broker.submit_order(
-                                symbol=symbol,
-                                side=OrderSide.SELL,
-                                price=current_price,
-                                quantity=qty,
-                                reason=result["reason"],
-                            )
-                            if order.status.value == "filled":
-                                trades_executed += 1
-                                self._notify_signal(
-                                    strategy, symbol, result, order.filled_price,
-                                    order.filled_quantity, current_price,
+                            if qty > 0:
+                                order = self._broker.submit_order(
+                                    symbol=symbol,
+                                    side=OrderSide.SELL,
+                                    price=current_price,
+                                    quantity=qty,
+                                    reason=result["reason"],
                                 )
-                        else:
-                            # 无持仓也推信号
-                            self._notify_signal(
-                                strategy, symbol, result, current_price,
-                                0, current_price, prefix="[自选] ",
-                            )
+                                if order.status.value == "filled":
+                                    trades_executed += 1
+                                    pending_signals.append({
+                                        "symbol": symbol, "price": order.filled_price,
+                                        "action": result["action"], "reason": result["reason"],
+                                        "strength": result["strength"], "strategy": strategy.name,
+                                        "held": True,
+                                    })
+                            pending_signals.append({
+                                "symbol": symbol, "price": current_price,
+                                "action": result["action"], "reason": result["reason"],
+                                "strength": result["strength"], "strategy": strategy.name,
+                                "held": False,
+                            })
 
                 except Exception as e:
                     logger.error(f"处理 {strategy.name} x {symbol} 时出错: {e}", exc_info=True)
+
+        # 合并推送
+        if pending_signals:
+            self._notify_batch(pending_signals, name_map)
 
         elapsed = time.time() - start
         self._run_count += 1
@@ -438,17 +483,17 @@ class MonitorLoop:
             signals_today = []
             try:
                 db_path = self._engine._db_path
-                conn = sqlite3.connect(str(db_path))
-                conn.row_factory = sqlite3.Row
+                conn = _sql.connect(str(db_path))
+                conn.row_factory = _sql.Row
                 today = datetime.now().strftime("%Y-%m-%d")
                 rows = conn.execute(
-                    "SELECT * FROM signal_log WHERE timestamp >= ? ORDER BY timestamp",
+                    "SELECT * FROM signal_log WHERE date(timestamp) >= ? ORDER BY timestamp",
                     (today,),
                 ).fetchall()
                 conn.close()
                 signals_today = [dict(r) for r in rows]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"信号查询失败: {e}")
 
             # 持仓 + 实时价格
             pos_with_pnl = []
@@ -567,6 +612,60 @@ class MonitorLoop:
             return 0
         return 3000 if symbol.startswith(("5", "1", "58", "16")) else 300
 
+    def _notify_batch(self, signals: list[dict], nm: dict[str, str] | None = None) -> None:
+        """持仓和自选各一封合并推送。"""
+        if not self._config.notification_enabled or not signals:
+            return
+        if nm is None:
+            nm = {}
+
+        def _name(sym):
+            return nm.get(sym, sym)
+
+        held = [s for s in signals if s.get("held")]
+        watch = [s for s in signals if not s.get("held")]
+
+        # 持仓信号：详细HTML格式
+        if held:
+            blocks = []
+            for s in held:
+                sym = s["symbol"]
+                name = _name(sym)
+                ac = "#dc2626" if s["action"] == "buy" else "#16a34a"
+                tag = "买入" if s["action"] == "buy" else "卖出"
+                blocks.append(
+                    f"<div style='padding:8px 0;border-bottom:1px solid #f1f5f9'>"
+                    f"<p style='margin:0;font-size:16px;font-weight:700;color:{ac}'>{tag}</p>"
+                    f"<p style='margin:6px 0 0;font-size:15px'>{sym}[{name}]</p>"
+                    f"<p style='margin:2px 0;font-size:13px;color:#64748b'>策略: {s['strategy']} · 当前价 {s['price']:.2f}</p>"
+                    f"<p style='margin:4px 0;font-size:13px;color:#334155'>{s['reason']}</p>"
+                    f"<p style='margin:0;font-size:11px;color:#94a3b8'>强度: {s['strength']:.1f}</p>"
+                    f"</div>"
+                )
+            self._notify_mgr.send_all(Notification(
+                title=f"持仓信号 ({len(held)}条)",
+                content="".join(blocks), level=NotifyLevel.WARNING,
+            ))
+
+        if watch:
+            buy_w = [s for s in watch if s["action"] == "buy"]
+            sell_w = [s for s in watch if s["action"] == "sell"]
+            # 按标的分组
+            by_sym: dict[str, list] = {}
+            for s in watch:
+                by_sym.setdefault(s["symbol"], []).append(s)
+            lines = []
+            for sym, items in sorted(by_sym.items()):
+                name = _name(sym)
+                strategies = "、".join(sorted(set(i["strategy"] for i in items)))
+                tag = "卖" if items[0]["action"] == "sell" else "买"
+                c = "#16a34a" if items[0]["action"] == "sell" else "#dc2626"
+                lines.append(f"<span style='color:{c}'>{tag}</span> {sym}[{name}]: {strategies}")
+            self._notify_mgr.send_all(Notification(
+                title=f"自选信号 ({len(buy_w)}买 {len(sell_w)}卖)",
+                content="<br>".join(lines), level=NotifyLevel.INFO,
+            ))
+
     def _notify_signal(
         self,
         strategy,
@@ -585,7 +684,7 @@ class MonitorLoop:
         name = meta.get("name", symbol)
         action_cn = "买入" if result["action"] == "buy" else "卖出"
 
-        title = f"{prefix}交易信号"
+        title = f"{prefix}交易信号: {symbol}[{name}]"
         action_color = "#dc2626" if result["action"] == "buy" else "#16a34a"
         suggestion = f"建议 {self._calc_buy_quantity(symbol, fill_price)} 份，买入后请在持仓管理记录" if result["action"] == "buy" else ""
         content = (
@@ -613,6 +712,21 @@ class MonitorLoop:
         logger.info(f"收到信号 {signum}，正在优雅退出...")
         _shutdown_flag = True
 
+
+def _build_name_map(quotes: pd.DataFrame) -> dict[str, str]:
+    """从行情 DataFrame 构建 symbol -> 中文名称映射。"""
+    sym_col = "symbol" if "symbol" in quotes.columns else "代码"
+    name_col = "name" if "name" in quotes.columns else "名称"
+    if sym_col not in quotes.columns or name_col not in quotes.columns:
+        return {}
+    result = {}
+    for _, r in quotes.iterrows():
+        s = str(r.get(sym_col, ""))
+        if len(s) > 6: s = s[2:]
+        n = str(r.get(name_col, ""))
+        if s and n and n != s and n != "nan":
+            result[s] = n
+    return result
 
 def _build_price_map(quotes: pd.DataFrame) -> dict[str, float]:
     """从行情 DataFrame 构建 symbol -> price 映射。"""

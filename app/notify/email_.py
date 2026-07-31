@@ -6,7 +6,6 @@
 
 import logging
 import smtplib
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from app.notify.base import BaseNotifier, Notification, NotifyLevel
@@ -49,13 +48,11 @@ class EmailNotifier(BaseNotifier):
             return False
 
         try:
-            msg = MIMEMultipart("alternative")
+            html_body = self._format_html(notification)
+            msg = MIMEText(html_body, "html", "utf-8")
             msg["Subject"] = f"[{notification.level.upper()}] {notification.title}"
             msg["From"] = self._username
             msg["To"] = ", ".join(self._recipients)
-
-            html_body = self._format_html(notification)
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
 
             if self._smtp_port == 465:
                 server = smtplib.SMTP_SSL(self._smtp_host, self._smtp_port, timeout=15)

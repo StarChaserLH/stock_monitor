@@ -1,6 +1,6 @@
 system:
   name: StockMonitor - A股行情监测系统
-  version: 1.0.0
+  version: 1.0.1
   log_level: INFO
   log_file: logs/system.log
   data_dir: data

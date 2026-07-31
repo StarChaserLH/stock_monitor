@@ -1,14 +1,20 @@
 """收盘小结 HTML 生成器。"""
 import logging; logger = logging.getLogger(__name__)
+import html as _html
 from datetime import datetime
 import pandas as pd
+
+
+def _esc(text: str) -> str:
+    """转义 HTML 特殊字符（< > &）。"""
+    return _html.escape(str(text), quote=False)
 
 
 def _n(code, nm):
     n = nm.get(code, "")
     if n and n != code and n != "nan":
-        return f"{code}({n})"
-    return code
+        return _esc(f"{code}({n})")
+    return _esc(code)
 
 
 def _health(vs20, vs60, rsi, pnl):
@@ -121,27 +127,24 @@ def build_closing_summary(quotes, active_symbols, signals_today, positions_with_
         held_syms = {p["symbol"] for p in positions_with_pnl}
         hs = [s for s in signals_today if s["symbol"] in held_syms]
         os_ = [s for s in signals_today if s["symbol"] not in held_syms]
-
         sl = []
-        def _render_section(title, color, signals):
-            if not signals:
-                return
-            sl.append(f"<div style='font-size:12px;font-weight:600;color:{color};margin-bottom:2px'>{title} ({len(signals)}条)</div>")
-            # 按标的分组
+        def _render_section(title, color, sg_list, max_show=30):
+            if not sg_list: return
+            total = len(sg_list)
+            shown = sg_list[:max_show]
+            sl.append(f"<div style='font-size:12px;font-weight:600;color:{color};margin-bottom:2px'>{_esc(title)} ({total}条)</div>")
             groups: dict[str, list] = {}
-            for s in signals:
-                key = s.get("symbol", "")
-                groups.setdefault(key, []).append(s)
-            for sym, items in sorted(groups.items()):
-                strategies = ", ".join(sorted(set(i.get("strategy_name", "?") for i in items)))
-                tag = "<span style='color:#16a34a'>卖</span>" if items[0]["action"]=="sell" else "<span style='color:#dc2626'>买</span>"
-                sl.append(f"<div style='font-size:12px;padding:1px 0'>{tag} {_n(sym,nm)}: {strategies}</div>")
-
-        _render_section("持仓信号", "#334155", hs)
-        _render_section("自选信号", "#64748b", os_)
-        body.append(
-            f"<div style='padding:8px 16px'><div style='border-top:1px solid #e2e8f0;padding-top:8px'>"
-            f"{''.join(sl)}</div></div>")
+            for s in shown:
+                groups.setdefault(s.get("symbol",""), []).append(s)
+            for sym, items in groups.items():
+                tag = "<span style='color:#16a34a'>[卖]</span>" if items[0]["action"]=="sell" else "<span style='color:#dc2626'>[买]</span>"
+                reasons = "<br>".join(f"　@{i.get('price',0):.2f} — {_esc(i.get('reason',''))} <span style='color:#94a3b8'>({_esc(i.get('strategy_name',''))})</span>" for i in items)
+                sl.append(f"<div style='font-size:12px;padding:1px 0'>{tag} {_n(sym,nm)}<br>{reasons}</div>")
+            if total > max_show:
+                sl.append(f"<div style='font-size:11px;color:#94a3b8;padding:2px 0'>以上为部分信号，完整列表见 Web 端信号历史</div>")
+        _render_section("持仓信号", "#334155", hs, 20)
+        _render_section("自选信号", "#64748b", os_, 10)
+        body.append(f"<div style='padding:8px 16px'><div style='border-top:1px solid #e2e8f0;padding-top:8px'>{''.join(sl)}</div></div>")
 
     # ── 警告 ──
     warns = []
@@ -166,12 +169,9 @@ def build_closing_summary(quotes, active_symbols, signals_today, positions_with_
         body.append(
             f"<div style='margin:0 16px 8px;padding:6px 12px;background:#f8fafc;font-size:11px;color:#64748b'>接近触发: {items}</div>")
 
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset='utf-8'></head>
-<body style='font-family:system-ui,sans-serif;margin:0;background:#f5f5f5'>
-<div style='max-width:660px;margin:0 auto;background:#fff;border-radius:6px;overflow:hidden'>
+    html = f"""<div style='max-width:660px;margin:0 auto;background:#fff;border-radius:6px;overflow:hidden'>
 {"".join(body)}
-</div></body></html>"""
+</div>"""
     return html
 
 
