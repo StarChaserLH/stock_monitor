@@ -7,6 +7,7 @@
 """
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -69,18 +70,43 @@ class SymbolManager:
         self._refresh_pool()
 
     def add_symbol(self, symbol: str, group: str | None = None) -> None:
-        """手动添加标的到监测池。"""
+        """手动添加标的到监测池，同步持久化到 config.yaml。"""
+        if group is None:
+            group = "ETF" if symbol.startswith(("5", "1", "58", "16")) else "股票"
         if symbol not in self._pool:
             self._pool.append(symbol)
-        if group:
-            self._groups.setdefault(group, []).append(symbol)
+        self._groups.setdefault(group, [])
+        if symbol not in self._groups[group]:
+            self._groups[group].append(symbol)
+        self._save_config_groups()
 
     def remove_symbol(self, symbol: str) -> None:
-        """从监测池移除标的。"""
+        """从监测池移除标的，同步持久化到 config.yaml。"""
         self._pool = [s for s in self._pool if s != symbol]
         for g in self._groups.values():
             if symbol in g:
                 g.remove(symbol)
+        self._save_config_groups()
+
+    def _save_config_groups(self) -> None:
+        """将当前分组写回 config.yaml。"""
+        import yaml
+        config_path = Path("config.yaml")
+        if not config_path.exists():
+            return
+        try:
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            # 只更新 symbols.groups，保留其他字段
+            raw.setdefault("symbols", {})["groups"] = {
+                g: list(codes) for g, codes in self._groups.items() if codes
+            }
+            config_path.write_text(
+                yaml.dump(raw, allow_unicode=True, default_flow_style=False, sort_keys=False),
+                encoding="utf-8",
+            )
+            logger.info(f"配置已持久化: {len(self._pool)} 个标的")
+        except Exception as e:
+            logger.error(f"保存配置失败: {e}")
 
     def refresh(self) -> None:
         """强制刷新标的池（全市场模式时重新扫描）。"""

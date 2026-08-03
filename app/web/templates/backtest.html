@@ -23,12 +23,8 @@
                 <input x-model.number="form.capital" type="number" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
             </div>
             <div>
-                <label class="block text-xs text-gray-500 mb-1">ETF 手数</label>
-                <input x-model.number="form.etf_lot" type="number" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-            </div>
-            <div>
-                <label class="block text-xs text-gray-500 mb-1">股票 手数</label>
-                <input x-model.number="form.stock_lot" type="number" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                <label class="block text-xs text-gray-500 mb-1">仓位比例 (%)</label>
+                <input x-model.number="form.position_ratio" type="number" min="1" max="100" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
             </div>
         </div>
         <div class="flex items-center gap-4 mb-3 mt-1">
@@ -79,8 +75,15 @@
 
         <!-- 标的标签 -->
         <div class="mb-3">
-            <label class="block text-xs text-gray-500 mb-1">回测标的 <span class="text-gray-400" x-text="'(' + form.symbols.length + ')'"></span></label>
-            <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+            <label class="block text-xs text-gray-500 mb-1">
+                回测标的 <span class="text-gray-400" x-text="'(' + form.symbols.length + ')'"></span>
+                <span class="ml-2">
+                    <button @click="selectAll()" class="text-blue-500 hover:underline text-xs">全选</button>
+                    <span class="text-gray-300 mx-1">|</span>
+                    <button @click="clearAll()" class="text-gray-400 hover:underline text-xs">全清</button>
+                </span>
+            </label>
+            <div class="flex flex-wrap gap-1.5">
                 <template x-for="s in allSymbols" :key="s.symbol">
                     <button @click="toggleSymbol(s.symbol)"
                             class="px-2 py-0.5 rounded text-xs border transition-colors"
@@ -101,11 +104,11 @@
         <p x-show="error" class="text-red-500 text-xs mt-2" x-text="error"></p>
 
         <div class="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3 space-y-1">
-            <p class="font-medium text-gray-500">回测条件说明</p>
-            <p>日均线策略需要 <b>21/201</b> 条以上 K 线才触发信号 · RSI / 布林带需要 <b>15/61</b> 条</p>
-            <p>大盘择时过滤（510300）：MA<b>200</b> 下方禁止买入 · MA<b>60</b> 下方信号强度 ×<b>0.7</b></p>
-            <p>交易量：以上方输入为准（ETF/股票） · 同标的同日同方向 <b>去重一次</b></p>
-            <p>组合模式：多策略共享资金池，信号按 <b>强度降序</b> 抢资金 · 单策略模式独立计算</p>
+            <p class="font-medium text-gray-500">说明</p>
+            <p>仓位比例 = 每笔买入占当前现金的百分比，向下取整到 100 股</p>
+            <p>手续费 = 每笔买入/卖出固定 <b>5 元</b>，无滑点、无印花税</p>
+            <p>大盘择时（510300）：MA<b>200</b> 下方禁止买入 · MA<b>60</b> 下方买入强度 ×<b>0.7</b>（config.yaml 可关闭）</p>
+            <p>无结果显示？检查：K 线数据是否足够 · 策略在该区间是否触发信号 · 回测标的与策略是否匹配</p>
         </div>
     </div>
 
@@ -217,7 +220,7 @@
 function backtestPage() {
     return {
         strategies: [],
-        form: { start_date: '2023-01-01', end_date: '2026-01-01', capital: 100000, etf_lot: 3000, stock_lot: 300, combined: false, compare: false, group: '全部', selected_ids: [], symbols: [] },
+        form: { start_date: '2023-01-01', end_date: '2026-01-01', capital: 100000, position_ratio: 10, combined: false, compare: false, group: '全部', selected_ids: [], symbols: [] },
             groups: { default: [] },
             allSymbols: [],
             compareGroups: [],
@@ -277,6 +280,8 @@ function backtestPage() {
             if (idx >= 0) this.form.symbols.splice(idx, 1);
             else this.form.symbols.push(sym);
         },
+        selectAll() { this.form.symbols = this.allSymbols.map(s => s.symbol); },
+        clearAll() { this.form.symbols = []; },
         applyGroup() {
             const g = this.form.group;
             if (!g) return;
@@ -294,7 +299,7 @@ function backtestPage() {
                 if (this.form.compare && this.compareGroups.length) {
                     const resp = await fetch('/api/backtest/compare', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ strategy_id: this.form.selected_ids[0], groups: this.compareGroups, start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, etf_lot: this.form.etf_lot, stock_lot: this.form.stock_lot })
+                        body: JSON.stringify({ strategy_id: this.form.selected_ids[0], groups: this.compareGroups, start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, position_ratio: this.form.position_ratio / 100 })
                     });
                     const data = await resp.json();
                     if (data.error) { this.error = data.error; }
@@ -302,7 +307,7 @@ function backtestPage() {
                 } else if (this.form.combined) {
                     const resp = await fetch('/api/backtest/combined', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ strategy_ids: this.form.selected_ids, start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, symbols: this.form.symbols, etf_lot: this.form.etf_lot, stock_lot: this.form.stock_lot })
+                        body: JSON.stringify({ strategy_ids: this.form.selected_ids, start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, symbols: this.form.symbols, position_ratio: this.form.position_ratio / 100 })
                     });
                     const data = await resp.json();
                     if (data.error) this.error = data.error;
@@ -310,7 +315,7 @@ function backtestPage() {
                 } else {
                     const resp = await fetch('/api/backtest', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ strategy_id: this.form.selected_ids[0], start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, symbols: this.form.symbols, etf_lot: this.form.etf_lot, stock_lot: this.form.stock_lot })
+                        body: JSON.stringify({ strategy_id: this.form.selected_ids[0], start_date: this.form.start_date, end_date: this.form.end_date, capital: this.form.capital, symbols: this.form.symbols, position_ratio: this.form.position_ratio / 100 })
                     });
                     const data = await resp.json();
                     if (data.error) this.error = data.error;
@@ -343,17 +348,74 @@ function backtestPage() {
         drawChart() {
             if (this.chart) this.chart.destroy();
             const eq = this.result?.equity || [];
+            const trades = this.result?.trades || [];
             const ctx = document.getElementById('equityChart');
             if (!ctx) return;
+
+            // 构建日期 → 权益值映射
+            const eqMap = {};
+            eq.forEach(e => { eqMap[e.date] = e.value; });
+            const dates = eq.map(e => e.date);
+
+            // BS 点：与 labels 等长的稀疏数组，Chart.js 自动对齐
+            const buyData = new Array(dates.length).fill(null);
+            const sellData = new Array(dates.length).fill(null);
+            const bsInfo = {};  // idx → {symbol, price, action}
+            trades.forEach(t => {
+                const idx = dates.indexOf(t.date);
+                if (idx < 0) return;
+                const v = eqMap[t.date];
+                if (v == null) return;
+                if (t.action === 'buy') {
+                    buyData[idx] = v;
+                } else {
+                    sellData[idx] = v;
+                }
+                bsInfo[idx] = { symbol: t.symbol, price: t.price, action: t.action === 'buy' ? '买入' : '卖出' };
+            });
+
+            const datasets = [{
+                label: '权益', data: eq.map(e => e.value),
+                borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+                fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.1,
+            }];
+            if (buyData.some(v => v != null)) {
+                datasets.push({
+                    label: '买入', data: buyData,
+                    backgroundColor: '#dc2626', borderColor: '#dc2626',
+                    pointStyle: 'triangle', pointRadius: 6, borderWidth: 1,
+                    showLine: false, spanGaps: false,
+                });
+            }
+            if (sellData.some(v => v != null)) {
+                datasets.push({
+                    label: '卖出', data: sellData,
+                    backgroundColor: '#16a34a', borderColor: '#16a34a',
+                    pointStyle: 'triangle', rotation: 180, pointRadius: 6, borderWidth: 1,
+                    showLine: false, spanGaps: false,
+                });
+            }
+
             this.chart = new Chart(ctx, {
                 type: 'line',
-                data: {
-                    labels: eq.map(e => e.date),
-                    datasets: [{ label: '权益', data: eq.map(e => e.value), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.1 }],
-                },
+                data: { labels: dates, datasets },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    plugins: {
+                        legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 10 }, usePointStyle: true } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    if (ctx.dataset.label === '买入' || ctx.dataset.label === '卖出') {
+                                        const info = bsInfo[ctx.dataIndex];
+                                        if (info) return info.action + ': ' + info.symbol + ' @' + info.price?.toFixed(2);
+                                        return ctx.dataset.label;
+                                    }
+                                    return '权益: ' + (ctx.raw || 0).toLocaleString();
+                                }
+                            }
+                        }
+                    },
                     scales: {
                         x: { ticks: { maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
                         y: { ticks: { font: { size: 10 }, callback: v => (v / 10000).toFixed(0) + '万' }, grid: { color: '#f1f5f9' } },

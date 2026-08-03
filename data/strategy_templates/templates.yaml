@@ -1,0 +1,108 @@
+# 策略模板库
+# 每个模板指向 data/strategies/ 下的一个成熟策略文件，
+# 并标注了可调参数，方便用户按需修改。
+
+templates:
+  - id: ma_crossover
+    name: 均线交叉
+    description: 参数化金叉死叉。fast=50/slow=200 长线趋势，fast=10/slow=30 短线轮动，fast=20/slow=60 中线波段。
+    category: trend
+    difficulty: beginner
+    source: data/strategies/ma_crossover.py
+    params:
+      - name: ma_fast
+        label: 快线周期
+        default: 50
+        hint: 金叉的快线，10=短线 20=中线 50=长线
+      - name: ma_slow
+        label: 慢线周期
+        default: 200
+        hint: 金叉的慢线，30=短线 60=中线 200=长线
+      - name: min_strength
+        label: 最小强度
+        default: 0.5
+        hint: 低于此强度的信号被过滤
+
+  - id: rsi_oversold
+    name: RSI超卖反弹
+    description: RSI 从 30 以下回升时买入，从 70 以上回落时卖出。适合震荡市。
+    category: mean-reversion
+    difficulty: beginner
+    source: data/strategies/rsi_oversold.py
+    params:
+      - name: oversold_level
+        label: 超卖线
+        default: 30
+        hint: RSI 低于此值视为超卖
+      - name: overbought_level
+        label: 超买线
+        default: 70
+        hint: RSI 高于此值视为超买
+      - name: period
+        label: RSI 周期
+        default: 14
+        hint: RSI 计算周期
+
+  - id: bollinger_squeeze
+    name: 布林收缩突破
+    description: 布林带宽压缩到 60 日最低时，价格上穿中轨买入，下穿中轨卖出。
+    category: breakout
+    difficulty: intermediate
+    source: data/strategies/bollinger_squeeze.py
+    params:
+      - name: ma_period
+        label: 中轨周期
+        default: 20
+        hint: 布林带中轨（均线）周期
+      - name: std_multiplier
+        label: 标准差倍数
+        default: 2.0
+        hint: 上下轨 = 中轨 ± N 倍标准差
+      - name: squeeze_window
+        label: 收口参考窗口
+        default: 60
+        hint: 带宽对比的历史窗口
+
+  - id: pullback_entry
+    name: 缩量回踩
+    description: 价格在 MA20 上方 2% 以内 + 缩量 < 70% 均量时买入。适合上升趋势中的回调买点。
+    category: pullback
+    difficulty: intermediate
+    source: data/strategies/pullback_entry.py
+    params:
+      - name: ma_period
+        label: 均线周期
+        default: 20
+        hint: 回踩参考均线
+      - name: max_deviation
+        label: 最大偏离
+        default: 0.02
+        hint: 价格高于均线的最大比例
+      - name: volume_shrink_ratio
+        label: 缩量比例
+        default: 0.7
+        hint: 当前量 / 均量 低于此值视为缩量
+
+  - id: dividend_grid
+    name: 红利网格
+    description: 真实股息率 + 布林收口判断洗盘 + 月线方向判断趋势。三因子共振分级买入，股息率止盈退出。个股用自身股息率（<0.5%自动跳过），ETF 用 510880 红利ETF 历史基准。
+    category: multi-factor
+    difficulty: advanced
+    source: data/strategies/dividend_grid.py
+    params:
+      - name: div_yield_entry
+        label: 买入门槛(%)
+        default: 4.5
+        hint: 股息率 >= 此值才考虑买入
+      - name: div_yield_take_profit
+        label: 止盈线(%)
+        default: 3.5
+        hint: 股息率 < 此值 + 价格 > MA60 → 止盈卖出
+      - name: div_yield_retreat
+        label: 撤退线(%)
+        default: 3.5
+        hint: 股息率 < 此值 + 上轨下移 + 价格 < MA20 → 撤退卖出
+      - name: div_yield_min
+        label: 最低股息率(%)
+        default: 0.5
+        hint: 股息率 < 此值的个股直接跳过（非分红股）

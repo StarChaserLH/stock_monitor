@@ -1,6 +1,3 @@
-def symbols(all_symbols, meta):
-    return [s for s in all_symbols if s.startswith(("5", "1", "58"))]
-
 def strategy(context, data):
     if data is None or len(data) < 21:
         return {"action": "hold", "reason": "数据不足", "strength": 0.0}

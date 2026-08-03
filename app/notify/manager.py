@@ -63,6 +63,8 @@ class NotificationManager:
 
         # 频率配置
         self._min_interval = config.notification_min_interval_minutes
+        self._held_interval = config.notification_held_interval_minutes
+        self._watch_interval = config.notification_watch_interval_minutes
         self._max_per_hour = config.notification_max_per_hour
 
         # 历史保留数
@@ -132,13 +134,20 @@ class NotificationManager:
             self._record_history(channel_key, notification, False, "免打扰时段")
             return False
 
-        # 频率限制：相同标题间隔
+        # 频率限制：持仓/自选分别控制间隔
+        if notification.level == NotifyLevel.WARNING:
+            interval = self._held_interval
+        elif notification.level == NotifyLevel.INFO:
+            interval = self._watch_interval
+        else:
+            interval = self._min_interval
+
         title_key = notification.title
         if title_key in self._title_timestamps:
             elapsed = (time.time() - self._title_timestamps[title_key]) / 60.0
-            if elapsed < self._min_interval:
+            if elapsed < interval:
                 self._record_history(channel_key, notification, False,
-                                     f"相同标题间隔不足 ({elapsed:.1f}min < {self._min_interval}min)")
+                                     f"间隔不足 ({elapsed:.1f}min < {interval}min)")
                 return False
 
         # 频率限制：每小时上限
@@ -266,9 +275,13 @@ class NotificationManager:
             if "frequency" in new_config:
                 freq = new_config["frequency"]
                 self._min_interval = int(freq.get("min_interval_minutes", 5))
+                self._held_interval = int(freq.get("held_interval_minutes", 10))
+                self._watch_interval = int(freq.get("watch_interval_minutes", 60))
                 self._max_per_hour = int(freq.get("max_per_hour", 20))
                 self._config._raw_notification["frequency"] = {
                     "min_interval_minutes": self._min_interval,
+                    "held_interval_minutes": self._held_interval,
+                    "watch_interval_minutes": self._watch_interval,
                     "max_per_hour": self._max_per_hour,
                 }
 

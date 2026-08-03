@@ -32,6 +32,7 @@ from app.symbols.manager import SymbolManager
 from app.trade.broker import OrderSide
 from app.trade.paper import PaperBroker
 from app.trade.positions import PositionStore
+from app.market.dividend import DividendProvider
 from app.scheduler.summary import build_closing_summary
 
 logger = logging.getLogger(__name__)
@@ -147,14 +148,44 @@ class MonitorLoop:
         trades_executed = 0
         pending_signals: list[dict] = []  # 全部信号收集器，循环结束后合并推送
 
-        # Step 2: 遍历策略 x 标的
-        self._market_regime = None  # 每轮重新评估大盘
+        # Step 2: 预构建股息率映射（ETF 用 510880 红利基准，个股并行拉取分红数据）
+        div_provider = DividendProvider()
+        etf_benchmark = div_provider.get_etf_benchmark_yield()
+        stock_syms = [s for s in active_symbols if not s.startswith(("5", "1", "58", "16"))]
+        stock_dividends: dict[str, float] = {}
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {pool.submit(div_provider.get_stock_dividend, s): s for s in stock_syms}
+            for f in as_completed(futures):
+                sym = futures[f]
+                try:
+                    stock_dividends[sym] = f.result()
+                except Exception:
+                    stock_dividends[sym] = 0.0
+
+        div_yields: dict[str, float] = {}
+        for sym in active_symbols:
+            price = price_map.get(sym, 0)
+            if price <= 0:
+                div_yields[sym] = 0.0
+            elif sym in stock_dividends:
+                dps = stock_dividends[sym]
+                div_yields[sym] = round(dps / price * 100, 2) if dps > 0 else 0.0
+            else:
+                div_yields[sym] = etf_benchmark
+
+        # Step 3: 遍历策略 x 标的
+        self._market_regime = None
         context = self._broker.get_context()
 
         for strategy in strategies:
-            symbols = active_symbols  # 全部标的不做策略级过滤
+            symbols = active_symbols
 
             for symbol in symbols:
+                context["div_yield"] = div_yields.get(symbol, 0.0)
+                context["is_etf"] = symbol.startswith(("5", "1", "58", "16"))
+
                 try:
                     hist_data = self._market.get_history(symbol, period="days", freq="daily")
                 except Exception:
@@ -229,62 +260,14 @@ class MonitorLoop:
                         strength=result["strength"],
                     )
 
-                    # Step 3: 执行交易
-                    if result["action"] == "buy":
-                        order = self._broker.submit_order(
-                            symbol=symbol,
-                            side=OrderSide.BUY,
-                            price=current_price,
-                            quantity=self._calc_buy_quantity(symbol, current_price),
-                            reason=result["reason"],
-                        )
-                        if order.status.value == "filled":
-                            trades_executed += 1
-                            pending_signals.append({
-                                "symbol": symbol, "price": order.filled_price,
-                                "action": result["action"], "reason": result["reason"],
-                                "strength": result["strength"], "strategy": strategy.name,
-                                "held": symbol in held_syms,
-                            })
-
-                    elif result["action"] == "sell":
-                        lot = self._calc_buy_quantity(symbol, 1)
-                        # 优先查真实持仓，其次模拟持仓
-                        real_pos = self._positions.get(symbol)
-                        if real_pos:
-                            qty = min(lot, real_pos["shares"])
-                            pending_signals.append({
-                                "symbol": symbol, "price": current_price,
-                                "action": result["action"], "reason": result["reason"],
-                                "strength": result["strength"], "strategy": strategy.name,
-                                "held": True,
-                            })
-                        else:
-                            pos = self._broker.get_position(symbol)
-                            qty = pos.shares if pos else 0
-                            qty = min(lot, qty) if qty > 0 else 0
-                            if qty > 0:
-                                order = self._broker.submit_order(
-                                    symbol=symbol,
-                                    side=OrderSide.SELL,
-                                    price=current_price,
-                                    quantity=qty,
-                                    reason=result["reason"],
-                                )
-                                if order.status.value == "filled":
-                                    trades_executed += 1
-                                    pending_signals.append({
-                                        "symbol": symbol, "price": order.filled_price,
-                                        "action": result["action"], "reason": result["reason"],
-                                        "strength": result["strength"], "strategy": strategy.name,
-                                        "held": True,
-                                    })
-                            pending_signals.append({
-                                "symbol": symbol, "price": current_price,
-                                "action": result["action"], "reason": result["reason"],
-                                "strength": result["strength"], "strategy": strategy.name,
-                                "held": False,
-                            })
+                    # Step 3: 收集信号（以真实持仓 PositionStore 为准，不触发虚拟成交）
+                    held = symbol in held_syms
+                    pending_signals.append({
+                        "symbol": symbol, "price": current_price,
+                        "action": result["action"], "reason": result["reason"],
+                        "strength": result["strength"], "strategy": strategy.name,
+                        "held": held,
+                    })
 
                 except Exception as e:
                     logger.error(f"处理 {strategy.name} x {symbol} 时出错: {e}", exc_info=True)
@@ -658,9 +641,14 @@ class MonitorLoop:
             for sym, items in sorted(by_sym.items()):
                 name = _name(sym)
                 strategies = "、".join(sorted(set(i["strategy"] for i in items)))
-                tag = "卖" if items[0]["action"] == "sell" else "买"
-                c = "#16a34a" if items[0]["action"] == "sell" else "#dc2626"
-                lines.append(f"<span style='color:{c}'>{tag}</span> {sym}[{name}]: {strategies}")
+                actions = set(i["action"] for i in items)
+                if len(actions) == 2:
+                    tag = "<span style='color:#dc2626'>买</span><span style='color:#16a34a'>卖</span>"
+                elif "sell" in actions:
+                    tag = "<span style='color:#16a34a'>卖</span>"
+                else:
+                    tag = "<span style='color:#dc2626'>买</span>"
+                lines.append(f"{tag} {sym}[{name}]: {strategies}")
             self._notify_mgr.send_all(Notification(
                 title=f"自选信号 ({len(buy_w)}买 {len(sell_w)}卖)",
                 content="<br>".join(lines), level=NotifyLevel.INFO,

@@ -520,6 +520,31 @@ def create_app(
         engine.delete(strategy_id)
         return jsonify({"status": "ok"})
 
+    @app.route("/api/strategies/templates", methods=["GET"])
+    @login_required
+    def api_strategies_templates():
+        """获取策略模板库（含完整代码）。"""
+        import yaml
+        templates_path = Path(config.system.data_dir) / "strategy_templates" / "templates.yaml"
+        if not templates_path.exists():
+            return jsonify({"templates": []})
+
+        try:
+            raw = yaml.safe_load(templates_path.read_text(encoding="utf-8"))
+            items = []
+            for t in raw.get("templates", []):
+                src = Path(t["source"])
+                code = src.read_text(encoding="utf-8") if src.exists() else ""
+                items.append({
+                    "id": t["id"], "name": t["name"], "description": t["description"],
+                    "category": t.get("category", ""), "difficulty": t.get("difficulty", ""),
+                    "params": t.get("params", []), "code": code,
+                })
+            return jsonify({"templates": items})
+        except Exception as e:
+            logger.error(f"模板加载失败: {e}")
+            return jsonify({"templates": [], "error": str(e)}), 500
+
     # ==================================================================
     # API 路由 - 交易记录
     # ==================================================================
@@ -903,8 +928,7 @@ def create_app(
         start_date = data.get("start_date", "")
         end_date = data.get("end_date", "")
         capital = float(data.get("capital", 100000))
-        etf_lot = int(data.get("etf_lot", 3000) or 3000)
-        stock_lot = int(data.get("stock_lot", 300) or 300)
+        position_ratio = float(data.get("position_ratio", 0.1) or 0.1)
 
         if not strategy_id or not start_date or not end_date:
             return jsonify({"error": "请填写策略、起始日期和结束日期"}), 400
@@ -917,9 +941,7 @@ def create_app(
                 start_date=start_date,
                 end_date=end_date,
                 initial_capital=capital,
-                skip_filter=True,
-                etf_lot=etf_lot,
-                stock_lot=stock_lot,
+                position_ratio=position_ratio,
             )
         except Exception as e:
             logger.error(f"回测异常: {e}", exc_info=True)
@@ -938,8 +960,7 @@ def create_app(
         start_date = data.get("start_date", "")
         end_date = data.get("end_date", "")
         capital = float(data.get("capital", 100000))
-        etf_lot = int(data.get("etf_lot", 3000) or 3000)
-        stock_lot = int(data.get("stock_lot", 300) or 300)
+        position_ratio = float(data.get("position_ratio", 0.1) or 0.1)
 
         if not strategy_ids or not start_date or not end_date:
             return jsonify({"error": "请选择至少一个策略并填写日期"}), 400
@@ -952,9 +973,7 @@ def create_app(
                 start_date=start_date,
                 end_date=end_date,
                 initial_capital=capital,
-                skip_filter=True,
-                etf_lot=etf_lot,
-                stock_lot=stock_lot,
+                position_ratio=position_ratio,
             )
         except Exception as e:
             logger.error(f"组合回测异常: {e}", exc_info=True)
@@ -1009,8 +1028,7 @@ def create_app(
         start_date = data.get("start_date", "")
         end_date = data.get("end_date", "")
         capital = float(data.get("capital", 100000))
-        etf_lot = int(data.get("etf_lot", 3000) or 3000)
-        stock_lot = int(data.get("stock_lot", 300) or 300)
+        position_ratio = float(data.get("position_ratio", 0.1) or 0.1)
 
         if not strategy_id or not group_names or not start_date or not end_date:
             return jsonify({"error": "请填写策略、选择分组并填写日期"}), 400
@@ -1026,7 +1044,7 @@ def create_app(
                     strategy_id=strategy_id, symbols=syms,
                     start_date=start_date, end_date=end_date,
                     initial_capital=capital, skip_filter=True,
-                    etf_lot=etf_lot, stock_lot=stock_lot,
+                    position_ratio=position_ratio,
                 )
                 m = r["metrics"]
                 results.append({

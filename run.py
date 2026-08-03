@@ -354,7 +354,7 @@ def main():
         # 检查 LLM API Key
         if not config.llm.api_key and getattr(args, "action", None) == "create":
             logger.warning("LLM API Key 未配置，策略生成功能不可用")
-            logger.warning("请在 .env 文件中设置 DEEPSEEK_API_KEY")
+            logger.warning("请在 .env 文件中设置 LLM_API_KEY（支持 OpenAI 兼容接口：DeepSeek / 通义千问 / 智谱 / Ollama 等）")
         cmd_strategy(args, config)
 
     elif args.command == "account":

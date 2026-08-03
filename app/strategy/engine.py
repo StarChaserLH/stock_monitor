@@ -377,7 +377,7 @@ class StrategyEngine:
         code_hash = hashlib.md5(record.code.encode()).hexdigest()
 
         if record.id in self._cache:
-            cached_hash, cached_func, cached_filter = self._cache[record.id]
+            cached_hash, cached_func, cached_filter, cached_cooldown = self._cache[record.id]
             if cached_hash == code_hash:
                 return cached_func
 
@@ -386,7 +386,8 @@ class StrategyEngine:
         exec(record.code, {"pd": pd, "np": np, "__builtins__": _safe_builtins()}, local_ns)
         func = local_ns["strategy"]
         filter_func = local_ns.get("symbols")  # 可选的标的过滤函数
-        self._cache[record.id] = (code_hash, func, filter_func)
+        cooldown_func = local_ns.get("cooldown")  # 可选的回测冷却函数
+        self._cache[record.id] = (code_hash, func, filter_func, cooldown_func)
         return func
 
     def get_symbol_filter(self, strategy_id: str):
@@ -400,6 +401,20 @@ class StrategyEngine:
             return None
         self._load_func(record)  # ensure cached
         return self._cache[record.id][2]
+
+    def get_cooldown(self, strategy_id: str) -> tuple[int, int]:
+        """获取策略的回测冷却周期 (buy_days, sell_days)。0 表示仅当日去重。"""
+        record = self._record_cache.get(strategy_id) or self.get(strategy_id)
+        if record is None:
+            return (0, 0)
+        self._load_func(record)
+        cooldown_func = self._cache[record.id][3]
+        if cooldown_func:
+            try:
+                return cooldown_func()
+            except Exception:
+                pass
+        return (0, 0)
 
     @staticmethod
     def _normalize_result(result: dict) -> dict:

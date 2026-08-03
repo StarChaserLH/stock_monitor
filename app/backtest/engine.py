@@ -19,18 +19,26 @@ logger = logging.getLogger(__name__)
 class BacktestBroker:
     """回测专用模拟账户。"""
 
-    def __init__(self, initial_capital: float, etf_lot: int = 3000, stock_lot: int = 300):
+    def __init__(self, initial_capital: float, position_ratio: float = 0.1):
         self.initial_capital = initial_capital
         self.cash = initial_capital
         self.positions: dict[str, dict] = {}
         self.trades: list[dict] = []
-        self.etf_lot = etf_lot
-        self.stock_lot = stock_lot
+        self.position_ratio = position_ratio
 
     def equity(self, price_map: dict[str, float]) -> float:
         mv = sum(self.positions[s]["shares"] * price_map.get(s, 0)
                  for s in self.positions)
         return self.cash + mv
+
+    def calc_quantity(self, symbol: str, price: float) -> int:
+        """按当前权益的 position_ratio% 计算买入股数，向下取整到 100 股。"""
+        if price <= 0:
+            return 0
+        equity = self.cash  # 保守：用现金而非总权益，避免高估值时过度买入
+        target = equity * self.position_ratio
+        qty = int(target / price / 100) * 100
+        return max(100, qty)
 
     def buy(self, symbol: str, price: float, quantity: int, date: str) -> bool:
         cost = price * quantity + 5
@@ -61,11 +69,6 @@ class BacktestBroker:
                             "quantity": quantity, "date": date})
         return True
 
-    def calc_quantity(self, symbol: str, price: float) -> int:
-        """固定每笔手数：ETF 1000 份，股票 100 股。"""
-        return self.etf_lot if symbol.startswith(("5", "1", "58", "16")) else self.stock_lot
-
-
 class BacktestEngine:
     """逐日回测引擎。"""
 
@@ -83,8 +86,7 @@ class BacktestEngine:
         end_date: str,
         initial_capital: float = 100000.0,
         skip_filter: bool = False,
-        etf_lot: int = 3000,
-        stock_lot: int = 300,
+        position_ratio: float = 0.1,
     ) -> dict:
         """执行回测。"""
         # 估算需要的 K 线数量：交易日数 + 缓冲
@@ -96,13 +98,16 @@ class BacktestEngine:
             days_needed = 250
         self._force_kline_fetch(symbols, days_needed)
 
-        broker = BacktestBroker(initial_capital, etf_lot=etf_lot, stock_lot=stock_lot)
+        broker = BacktestBroker(initial_capital, position_ratio=position_ratio)
 
         strategy = self._engine.get(strategy_id)
         if strategy is None:
             return {"error": f"策略不存在: {strategy_id}"}
 
         filter_func = self._engine.get_symbol_filter(strategy_id)
+
+        # 分红数据预取（回测期间股息率 = 最新分红 / 历史时点价格）
+        self._div_data = self._prefetch_dividends(symbols)
 
         # 大盘择时数据
         mt = self._config.market_timing
@@ -113,6 +118,8 @@ class BacktestEngine:
         # 权益曲线从指定起始日开始
         equity_curve = [{"date": start_date, "value": initial_capital}]
         signals_today: set = set()  # 当日去重: (symbol, action)
+        recent_signals: dict[tuple, int] = {}  # 跨日去重: (symbol, action) → last_ti
+        buy_cooldown, sell_cooldown = self._engine.get_cooldown(strategy_id)
 
         trading_dates = self._build_trading_calendar(symbols, start_date, end_date)
         logger.info(f"回测开始: {strategy.name} × {len(symbols)} 只, "
@@ -146,6 +153,8 @@ class BacktestEngine:
             if not skip_filter and filter_func:
                 meta = {s: {"name": s} for s in symbols}
                 active = [s for s in filter_func(symbols, meta) if s in symbols]
+                if not active:
+                    return {"error": f"策略 \"{strategy.name}\" 的标的过滤未匹配任何选中标的（策略限制：仅 ETF 等特定类型）"}
             else:
                 active = list(symbols)
 
@@ -160,6 +169,7 @@ class BacktestEngine:
                 "cash": broker.cash,
                 "positions": {s: p["shares"] for s, p in broker.positions.items()},
                 "position_count": len(broker.positions),
+                "div_yield": 0.0,  # 每个标的单独设置
             }
 
             for sym in active:
@@ -170,6 +180,11 @@ class BacktestEngine:
                     continue
                 data = all_histories[sym].iloc[:p]  # 整数索引，无日期比较
 
+                # 按历史时点计算股息率
+                price = price_map.get(sym, 0)
+                context["div_yield"] = self._dividend_at_date(self._div_data, sym, dt, price) if price > 0 else 0.0
+                context["is_etf"] = sym.startswith(("5", "1", "58", "16"))
+
                 try:
                     result = self._engine.execute(strategy.id, context, data)
 
@@ -178,11 +193,15 @@ class BacktestEngine:
                     if result["strength"] < self._config.scheduler.min_signal_strength:
                         continue
 
-                    # 当日去重
+                    # 去重：当日 + 跨日冷却期
                     key = (sym, result["action"])
                     if key in signals_today:
                         continue
+                    cooldown = buy_cooldown if result["action"] == "buy" else sell_cooldown
+                    if ti - recent_signals.get(key, -999) < cooldown:
+                        continue
                     signals_today.add(key)
+                    recent_signals[key] = ti
 
                     price = price_map.get(sym, 0)
                     if price <= 0:
@@ -234,12 +253,11 @@ class BacktestEngine:
         end_date: str,
         initial_capital: float = 100000.0,
         skip_filter: bool = False,
-        etf_lot: int = 3000,
-        stock_lot: int = 300,
+        position_ratio: float = 0.1,
     ) -> dict:
         """多策略组合回测，共享同一资金池，信号按强度优先级竞争资金。"""
         self._market.preload_kline_cache(symbols)
-        broker = BacktestBroker(initial_capital, etf_lot=etf_lot, stock_lot=stock_lot)
+        broker = BacktestBroker(initial_capital, position_ratio=position_ratio)
 
         strategies = [s for s in (self._engine.get(sid) for sid in strategy_ids) if s]
         if not strategies:
@@ -250,6 +268,11 @@ class BacktestEngine:
 
         equity_curve = [{"date": start_date, "value": initial_capital}]
         signals_today: set = set()
+        recent_signals: dict[tuple, int] = {}
+        # 组合回测取各策略最保守的冷却
+        cooldowns = [self._engine.get_cooldown(s.id) for s in strategies]
+        buy_cooldown = max((c[0] for c in cooldowns), default=0)
+        sell_cooldown = max((c[1] for c in cooldowns), default=0)
         trading_dates = self._build_trading_calendar(symbols, start_date, end_date)
 
         all_histories, sym_close, sym_pos = {}, {}, {}
@@ -271,6 +294,8 @@ class BacktestEngine:
 
         logger.info(f"组合回测: {[s.name for s in strategies]}, {len(trading_dates)}天")
 
+        self._div_data = self._prefetch_dividends(symbols)
+
         for ti, dt in enumerate(trading_dates):
             date_str = dt.strftime("%Y-%m-%d")
             signals_today.clear()
@@ -284,6 +309,7 @@ class BacktestEngine:
                 "cash": broker.cash,
                 "positions": {s: p["shares"] for s, p in broker.positions.items()},
                 "position_count": len(broker.positions),
+                "div_yield": 0.0,
             }
 
             pending = []
@@ -301,6 +327,12 @@ class BacktestEngine:
                     if p < 21:
                         continue
                     data = all_histories[sym].iloc[:p]
+
+                    # 按历史时点计算股息率
+                    price = price_map.get(sym, 0)
+                    context["div_yield"] = self._dividend_at_date(self._div_data, sym, dt, price) if price > 0 else 0.0
+                    context["is_etf"] = sym.startswith(("5", "1", "58", "16"))
+
                     try:
                         result = self._engine.execute(strategy.id, context, data)
                         if result["action"] == "hold":
@@ -319,7 +351,11 @@ class BacktestEngine:
                 key = (sym, result["action"])
                 if key in signals_today:
                     continue
+                cooldown = buy_cooldown if result["action"] == "buy" else sell_cooldown
+                if ti - recent_signals.get(key, -999) < cooldown:
+                    continue
                 signals_today.add(key)
+                recent_signals[key] = ti
                 if result["action"] == "buy":
                     if benchmark_regime:
                         regime = benchmark_regime.get(date_str, {})
@@ -400,6 +436,125 @@ class BacktestEngine:
             self._market.preload_kline_cache(symbols)
         finally:
             self._market._fetch_history = orig_fetch
+
+    def _prefetch_dividends(self, symbols: list[str]) -> dict:
+        """预取分红时间序列 + ETF 基准历史价格，用于回测期间按历史时点计算股息率。
+
+        Returns:
+            dict with keys:
+              - "etf_dividends": list[tuple[date, annual_div_per_unit]]  510880 年度分红
+              - "etf_prices": dict[str, float]  510880 日线价格 {date_str: price}
+              - "<symbol>": list[tuple[date, div_per_share]]  个股除权日升序
+        """
+        import akshare as ak
+        data: dict = {}
+        data["etf_dividends"] = []
+        data["etf_prices"] = {}
+
+        # ── ETF 基准：510880 历史分红 + 日线价格 ──
+        try:
+            div_df = ak.fund_etf_dividend_sina(symbol="sh510880")
+            if div_df is not None and not div_df.empty:
+                timeline = []
+                for i in range(len(div_df)):
+                    d = pd.to_datetime(div_df.iloc[i, 0]).date()
+                    cum = float(div_df.iloc[i, 1])
+                    annual = cum - float(div_df.iloc[i-1, 1]) if i > 0 else cum
+                    timeline.append((d, annual))
+                data["etf_dividends"] = timeline
+
+            # 510880 价格历史（走 force_kline_fetch 保证足够长度）
+            self._force_kline_fetch(["510880"], 2000)
+            price_hist = self._market.get_history("510880", period="days", freq="daily")
+            if not price_hist.empty and "close" in price_hist.columns:
+                for idx, row in price_hist.iterrows():
+                    d = idx.date() if hasattr(idx, "date") else pd.Timestamp(idx).date()
+                    data["etf_prices"][d.isoformat()] = float(row["close"])
+        except Exception as e:
+            logger.warning(f"ETF 基准历史数据加载失败: {e}")
+
+        # ── 个股分红时间序列 ──
+        stock_syms = [s for s in symbols if not s.startswith(("5", "1", "58", "16"))]
+        for sym in stock_syms:
+            try:
+                df = ak.stock_dividend_cninfo(symbol=sym)
+                if df is None or df.empty:
+                    data[sym] = []
+                    continue
+
+                div_col = df.columns[4]   # 派息比例 (每10股)
+                date_col = df.columns[6]  # 除权日
+
+                valid = df[df[div_col].notna() & (df[div_col] > 0)].copy()
+                if valid.empty:
+                    data[sym] = []
+                    continue
+
+                valid[date_col] = pd.to_datetime(valid[date_col], errors="coerce")
+                valid = valid.dropna(subset=[date_col]).sort_values(date_col)
+
+                timeline = []
+                for _, r in valid.iterrows():
+                    ex_date = r[date_col].date()
+                    dps = float(r[div_col]) / 10  # 每10股 → 每股
+                    timeline.append((ex_date, dps))
+
+                data[sym] = timeline
+            except Exception:
+                data[sym] = []
+
+        return data
+
+    @staticmethod
+    def _nearest_price(prices: dict[str, float], target) -> float:
+        """在价格字典中查找目标日期当天或之前最近一个交易日的价格。"""
+        from datetime import date, timedelta
+        d = target if isinstance(target, date) else target.date()
+        for offset in range(7):
+            check = d - timedelta(days=offset)
+            p = prices.get(check.isoformat(), 0)
+            if p > 0:
+                return p
+        return 0.0
+
+    @staticmethod
+    def _dividend_at_date(div_data: dict, sym: str, dt, price: float) -> float:
+        """计算某只股票在指定日期的股息率(%)。
+
+        个股：滚动 12 个月累计分红 / 当日价格 × 100
+        ETF：510880 滚动 12 个月分红 / 510880 当日价格 × 100
+        """
+        from datetime import timedelta
+        d = dt.date() if hasattr(dt, "date") else dt
+        cutoff = d - timedelta(days=365)
+
+        is_etf = sym.startswith(("5", "1", "58", "16"))
+        if is_etf:
+            # 用 510880 的历史价格和分红计算基准股息率
+            timeline = div_data.get("etf_dividends", [])
+            prices = div_data.get("etf_prices", {})
+            # 取目标日期当天或之前最近一个交易日的价格
+            etf_price = BacktestEngine._nearest_price(prices, d)
+            if not timeline or etf_price <= 0:
+                return 0.0
+
+            total_div = 0.0
+            for ex_date, annual_div in timeline:
+                if cutoff < ex_date <= d:
+                    total_div += annual_div
+            return round(total_div / etf_price * 100, 2) if total_div > 0 else 0.0
+
+        # 个股
+        timeline = div_data.get(sym, [])
+        if not timeline or price <= 0:
+            return 0.0
+
+        total_dps = 0.0
+        for ex_date, div in timeline:
+            if cutoff < ex_date <= d:
+                total_dps += div
+
+        return round(total_dps / price * 100, 2) if total_dps > 0 else 0.0
 
     def _compute_benchmark_regime(self, benchmark: str) -> dict[str, dict]:
         """预计算基准指数每日的大盘环境。

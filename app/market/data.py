@@ -89,11 +89,14 @@ class MarketData:
             if time.time() - ts < self._config.cache_ttl:
                 return df.copy()
 
-        # 优先从本地 SQLite 读取
+        # 优先从本地 SQLite 读取（检查新鲜度）
         df = self._read_kline_from_db(symbol)
         if not df.empty:
-            self._cache[cache_key] = (time.time(), df)
-            return df
+            latest = df.index[-1]
+            age_days = (datetime.now() - latest).days if hasattr(latest, 'date') else 99
+            if age_days <= 2:  # 2 天内数据视为有效
+                self._cache[cache_key] = (time.time(), df)
+                return df
 
         try:
             df = self._fetch_history(symbol, period, freq)

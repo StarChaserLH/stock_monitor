@@ -2,13 +2,54 @@
 {% block title %}策略管理 - StockMonitor{% endblock %}
 
 {% block content %}
-<div x-data="strategies()" x-init="fetchList()" class="fade-in">
+<div x-data="strategies()" x-init="fetchList(); fetchTemplates()" class="fade-in">
     <h2 class="text-2xl font-bold text-gray-800 mb-6">策略管理</h2>
 
-    <!-- 生成新策略 -->
+    <!-- 策略模板库 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-6" x-show="templates.length">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 flex justify-between items-center">
+            <span>策略模板</span>
+            <span class="text-xs text-gray-400">点击模板直接填充代码编辑器</span>
+        </div>
+        <div class="p-4 grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <template x-for="t in templates" :key="t.id">
+                <div class="border border-gray-200 rounded-lg p-3 hover:border-blue-400 hover:shadow-sm cursor-pointer transition-all"
+                     @click="selectTemplate(t)">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs px-1.5 py-0.5 rounded"
+                              :class="t.difficulty === 'beginner' ? 'bg-green-100 text-green-700' :
+                                      t.difficulty === 'intermediate' ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-red-100 text-red-700'"
+                              x-text="t.difficulty === 'beginner' ? '入门' :
+                                       t.difficulty === 'intermediate' ? '进阶' : '高级'"></span>
+                        <span class="text-xs text-gray-400" x-text="t.category === 'trend' ? '趋势' :
+                                t.category === 'mean-reversion' ? '均值回归' :
+                                t.category === 'breakout' ? '突破' :
+                                t.category === 'pullback' ? '回调' :
+                                t.category === 'multi-factor' ? '多因子' : t.category"></span>
+                    </div>
+                    <p class="text-sm font-medium text-gray-800" x-text="t.name"></p>
+                    <p class="text-xs text-gray-500 mt-1 line-clamp-2" x-text="t.description"></p>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- LLM 生成 + 手动创建 -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
-        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700">自然语言生成策略</div>
-        <div class="p-5">
+        <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 flex items-center gap-3">
+            <span x-text="editMode === 'manual' ? '手动编写策略' : '自然语言生成策略'"></span>
+            <span class="flex-1"></span>
+            <button @click="editMode = 'llm'"
+                    :class="editMode === 'llm' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'"
+                    class="text-xs px-3 py-1 rounded transition-colors">LLM 生成</button>
+            <button @click="editMode = 'manual'"
+                    :class="editMode === 'manual' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'"
+                    class="text-xs px-3 py-1 rounded transition-colors">手动编写</button>
+        </div>
+
+        <!-- LLM 生成面板 -->
+        <div class="p-5" x-show="editMode === 'llm'">
             <textarea x-model="description" rows="3"
                       placeholder="用自然语言描述你的策略，例如：当5日均线上穿20日均线且成交量大于1.5倍前一日成交量时产生买入信号"
                       class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
@@ -21,27 +62,46 @@
                 </button>
             </div>
             <p x-show="genError" class="text-red-500 text-xs mt-2" x-text="genError"></p>
+        </div>
 
-            <!-- 生成结果预览 -->
-            <div x-show="genCode" class="mt-4 fade-in">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-700">代码预览</span>
-                    <button @click="editMode = !editMode" class="text-blue-500 text-xs hover:underline"
-                            x-text="editMode ? '只读' : '编辑'"></button>
-                </div>
-                <pre class="code-block" x-show="!editMode" x-text="genCode"></pre>
-                <textarea x-show="editMode" x-model="genCode" rows="16"
-                          class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-                <div class="flex gap-2 mt-3">
-                    <button @click="saveGenerated()"
-                            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                        确认保存
-                    </button>
-                    <button @click="genCode=''; genDesc=''; genError=''"
-                            class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
-                        取消
-                    </button>
-                </div>
+        <!-- 手动编写面板 -->
+        <div class="p-5" x-show="editMode === 'manual'">
+            <div class="flex gap-3 mb-3">
+                <input type="text" x-model="stratName" placeholder="策略名称" class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-48">
+                <input type="text" x-model="manualDesc" placeholder="策略简述（可选）" class="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1">
+            </div>
+            <textarea x-model="genCode" rows="16"
+                      placeholder="粘贴或编写 Python 策略代码&#10;&#10;必须包含 strategy(context, data) 函数，返回 {'action': 'buy'|'sell'|'hold', 'reason': '...', 'strength': 0.0}"
+                      class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+            <div class="flex gap-2 mt-3">
+                <button @click="saveGenerated()"
+                        :disabled="!genCode.trim()"
+                        class="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    <span x-text="editingId ? '更新策略' : '保存策略'"></span>
+                </button>
+                <button @click="genCode=''; genDesc=''; genError=''; stratName=''; manualDesc=''; editingId=''"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                    清空
+                </button>
+            </div>
+        </div>
+
+        <!-- 代码预览 / 编辑（LLM 生成后展示） -->
+        <div x-show="genCode && editMode === 'llm'" class="px-5 pb-5 fade-in">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium text-gray-700">代码预览（可编辑后保存）</span>
+            </div>
+            <textarea x-model="genCode" rows="16"
+                      class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+            <div class="flex gap-2 mt-3">
+                <button @click="saveGenerated()"
+                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    <span x-text="editingId ? '更新策略' : '确认保存'"></span>
+                </button>
+                <button @click="genCode=''; genDesc=''; genError=''; editingId=''"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                    取消
+                </button>
             </div>
         </div>
     </div>
@@ -76,6 +136,7 @@
                         <td class="px-5 py-3 text-right">
                             <button @click="toggle(s.id)" class="text-xs px-2 py-1 rounded hover:bg-gray-100"
                                     x-text="s.enabled ? '禁用' : '启用'"></button>
+                            <button @click="editStrategy(s)" class="text-xs px-2 py-1 rounded hover:bg-gray-100 text-yellow-600">编辑</button>
                             <button @click="viewCode(s.id)" class="text-xs px-2 py-1 rounded hover:bg-gray-100 text-blue-500">查看</button>
                             <button @click="deleteStrategy(s.id)" class="text-xs px-2 py-1 rounded hover:bg-gray-100 text-red-500">删除</button>
                         </td>
@@ -83,7 +144,7 @@
                 </template>
             </tbody>
         </table>
-        <div x-show="!list.length" class="p-8 text-center text-gray-400 text-sm">暂无策略，请用上方自然语言描述生成</div>
+        <div x-show="!list.length" class="p-8 text-center text-gray-400 text-sm">暂无策略，用上方模板或编写代码来创建</div>
     </div>
 
     <!-- 查看代码弹窗 -->
@@ -112,18 +173,37 @@
 function strategies() {
     return {
         list: [],
+        templates: [],
         description: '',
         stratName: '',
+        manualDesc: '',
         genCode: '',
         genDesc: '',
         genError: '',
         generating: false,
-        editMode: false,
+        editMode: 'llm',
+        editingId: '',
         viewingCode: null,
         viewingName: '',
         async fetchList() {
             const resp = await fetch('/api/strategies');
             this.list = await resp.json();
+        },
+        async fetchTemplates() {
+            try {
+                const resp = await fetch('/api/strategies/templates');
+                const r = await resp.json();
+                this.templates = r.templates || [];
+            } catch (e) { /* 模板加载失败不影响主功能 */ }
+        },
+        selectTemplate(t) {
+            this.editMode = 'manual';
+            this.stratName = t.name;
+            this.manualDesc = t.description;
+            this.genCode = t.code;
+            this.genError = '';
+            // 滚到编辑器
+            document.querySelector('textarea[x-model="genCode"]')?.scrollIntoView({ behavior: 'smooth' });
         },
         async generate() {
             if (!this.description.trim()) return;
@@ -148,13 +228,26 @@ function strategies() {
             }
             this.generating = false;
         },
+        async editStrategy(s) {
+            // 加载现有策略代码到手动编辑器
+            const resp = await fetch(`/api/strategies/${s.id}/code`);
+            const r = await resp.json();
+            this.editingId = s.id;
+            this.editMode = 'manual';
+            this.stratName = s.name;
+            this.manualDesc = s.description || '';
+            this.genCode = r.code;
+            this.genError = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
         async saveGenerated() {
             const resp = await fetch('/api/strategies/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    id: this.editingId || '',
                     name: this.stratName || '未命名策略',
-                    description: this.genDesc || this.description,
+                    description: this.manualDesc || this.genDesc || this.description,
                     code: this.genCode
                 })
             });
@@ -164,6 +257,9 @@ function strategies() {
                 this.genDesc = '';
                 this.description = '';
                 this.stratName = '';
+                this.manualDesc = '';
+                this.editingId = '';
+                this.editMode = 'llm';
                 await this.fetchList();
             } else {
                 this.genError = r.error || '保存失败';
