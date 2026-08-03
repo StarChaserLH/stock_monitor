@@ -98,7 +98,7 @@ class LLMConfig(BaseModel):
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-v4-pro"
     temperature: float = 0.1
-    max_tokens: int = 4096
+    max_tokens: int = 8192
     max_retries: int = 3
 
 
@@ -224,6 +224,14 @@ class AppConfig:
     @property
     def notification_min_interval_minutes(self) -> int:
         return self._raw_notification.get("frequency", {}).get("min_interval_minutes", 5)
+
+    @property
+    def notification_held_interval_minutes(self) -> int:
+        return self._raw_notification.get("frequency", {}).get("held_interval_minutes", 10)
+
+    @property
+    def notification_watch_interval_minutes(self) -> int:
+        return self._raw_notification.get("frequency", {}).get("watch_interval_minutes", 60)
 
     @property
     def notification_max_per_hour(self) -> int:

@@ -137,7 +137,13 @@ def build_closing_summary(quotes, active_symbols, signals_today, positions_with_
             for s in shown:
                 groups.setdefault(s.get("symbol",""), []).append(s)
             for sym, items in groups.items():
-                tag = "<span style='color:#16a34a'>[卖]</span>" if items[0]["action"]=="sell" else "<span style='color:#dc2626'>[买]</span>"
+                actions = set(i["action"] for i in items)
+                if len(actions) == 2:
+                    tag = "<span style='color:#dc2626'>[买]</span><span style='color:#16a34a'>[卖]</span>"
+                elif "sell" in actions:
+                    tag = "<span style='color:#16a34a'>[卖]</span>"
+                else:
+                    tag = "<span style='color:#dc2626'>[买]</span>"
                 reasons = "<br>".join(f"　@{i.get('price',0):.2f} — {_esc(i.get('reason',''))} <span style='color:#94a3b8'>({_esc(i.get('strategy_name',''))})</span>" for i in items)
                 sl.append(f"<div style='font-size:12px;padding:1px 0'>{tag} {_n(sym,nm)}<br>{reasons}</div>")
             if total > max_show:

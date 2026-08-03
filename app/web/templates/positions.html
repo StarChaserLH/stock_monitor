@@ -4,14 +4,16 @@
 <div x-data="positionsPage()" x-init="load()">
     <h2 class="text-xl font-bold text-gray-800 mb-6">持仓管理</h2>
 
-    <!-- 添加持仓表单 -->
+    <!-- 添加 / 编辑持仓表单 -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
-        <h3 class="text-sm font-semibold text-gray-700 mb-3">添加 / 更新持仓</h3>
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">
+            <span x-text="editing ? '编辑持仓: ' + form.symbol : '添加持仓'"></span>
+        </h3>
         <div class="grid grid-cols-5 gap-3">
             <div>
                 <label class="block text-xs text-gray-500 mb-1">股票代码</label>
-                <input x-model="form.symbol" type="text" placeholder="如 510050"
-                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+                <input x-model="form.symbol" type="text" placeholder="如 510050" :disabled="editing"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent disabled:bg-gray-100">
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">数量（股）</label>
@@ -28,11 +30,15 @@
                 <input x-model="form.date" type="date"
                        class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
             </div>
-            <div class="flex items-end">
-                <button @click="add()" :disabled="loading"
-                        class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded px-4 py-2 text-sm font-medium transition-colors">
-                    <span x-show="!loading">保存</span>
+            <div class="flex items-end gap-2">
+                <button @click="save()" :disabled="loading"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded px-4 py-2 text-sm font-medium transition-colors">
+                    <span x-show="!loading" x-text="editing ? '更新' : '保存'"></span>
                     <span x-show="loading" class="spinner"></span>
+                </button>
+                <button @click="cancelEdit()" x-show="editing"
+                        class="bg-gray-200 hover:bg-gray-300 text-gray-600 rounded px-3 py-2 text-sm transition-colors">
+                    取消
                 </button>
             </div>
         </div>
@@ -84,9 +90,8 @@
                             <td class="px-4 py-3" :class="p.pnl_pct >= 0 ? 'text-red-500' : 'text-green-500'" x-text="p.price ? (p.pnl_pct >= 0 ? '+' : '') + p.pnl_pct.toFixed(2) + '%' : '-'"></td>
                             <td class="px-4 py-3 text-gray-500 text-xs" x-text="p.date"></td>
                             <td class="px-4 py-3 text-center">
-                                <button @click="remove(p.symbol)" class="text-red-400 hover:text-red-600 transition-colors" title="删除">
-                                    <span class="mdi mdi-delete"></span>
-                                </button>
+                                <button @click="edit(p)" class="text-blue-400 hover:text-blue-600 transition-colors mr-2" title="编辑">&#9998;</button>
+                                <button @click="remove(p.symbol)" class="text-red-400 hover:text-red-600 transition-colors" title="删除">&#10005;</button>
                             </td>
                         </tr>
                     </template>
@@ -103,6 +108,7 @@ function positionsPage() {
     return {
         list: [],
         loading: false,
+        editing: false,
         form: { symbol: "", shares: "", cost: "", date: "" },
         async load() {
             this.loading = true;
@@ -113,7 +119,16 @@ function positionsPage() {
                 this.loading = false;
             }
         },
-        async add() {
+        edit(p) {
+            this.editing = true;
+            this.form = { symbol: p.symbol, shares: p.shares, cost: p.cost, date: p.date || "" };
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        },
+        cancelEdit() {
+            this.editing = false;
+            this.form = { symbol: "", shares: "", cost: "", date: "" };
+        },
+        async save() {
             const { symbol, shares, cost } = this.form;
             if (!symbol || !shares || !cost) {
                 alert("请完整填写代码、数量和成本");
@@ -128,6 +143,7 @@ function positionsPage() {
                 });
                 const data = await resp.json();
                 if (data.status === "ok") {
+                    this.editing = false;
                     this.form = { symbol: "", shares: "", cost: "", date: "" };
                     await this.load();
                 } else {

@@ -15,7 +15,7 @@ llm:
   base_url: https://api.deepseek.com
   model: deepseek-v4-pro
   temperature: 0.1
-  max_tokens: 4096
+  max_tokens: 8192
   max_retries: 3
 strategy:
   storage_dir: strategies
@@ -48,6 +48,8 @@ notification:
     end: 7
   frequency:
     min_interval_minutes: 10
+    held_interval_minutes: 10
+    watch_interval_minutes: 60
     max_per_hour: 0
   history_retention: 500
   channels:

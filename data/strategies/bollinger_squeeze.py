@@ -1,6 +1,3 @@
-def symbols(all_symbols, meta):
-    return [s for s in all_symbols if s.startswith(("5", "1", "58"))]
-
 def strategy(context, data):
     """布林带收缩突破 (Bollinger Squeeze)。
 
