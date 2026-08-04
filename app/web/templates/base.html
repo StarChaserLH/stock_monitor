@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}StockMonitor{% endblock %}</title>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+    <script defer src="{{ url_for('static', filename='alpine.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='tailwind.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='mdi.min.css') }}">
     <style>
         [x-cloak] { display: none !important; }
         .sidebar-link.active { background: #1e293b; color: #e2e8f0; }

@@ -372,6 +372,44 @@ class StrategyEngine:
             """)
             conn.commit()
 
+        self._seed_builtin_strategies()
+
+    def _seed_builtin_strategies(self) -> None:
+        """首次启动时将内置策略注册到数据库（幂等，已存在则跳过）。"""
+        builtins = {
+            "ma_crossover.py":      ("均线交叉",   "参数化金叉死叉：fast=50/slow=200长线，fast=10/slow=30短线"),
+            "volume_breakout.py":   ("放量突破",   "价格上穿MA20 + 放量1.5倍买入，下穿MA20卖出"),
+            "pullback_entry.py":   ("缩量回踩",   "价格回踩MA20 + 缩量<70%买入，偏离>5%+放量卖出"),
+            "rsi_oversold.py":     ("RSI超卖反弹", "RSI从30以下回升买入，从70以上回落卖出"),
+            "bollinger_squeeze.py":("布林收缩突破", "布林带宽压缩至60日最低，价格上穿中轨买入"),
+            "nine_turns.py":       ("神奇九转",   "连续9天收盘价低于/高于4天前，第9天反转信号"),
+            "trailing_stop.py":    ("ATR移动止盈", "ATR(14)×2 替代固定回撤，高波动宽、低波动窄"),
+            "dividend_grid.py":    ("红利网格",   "真实股息率+布林收口+月线方向，三因子共振分级买入"),
+        }
+        import uuid, datetime
+        storage = self._storage_dir
+        now = datetime.datetime.now().isoformat()
+
+        for filename, (name, desc) in builtins.items():
+            filepath = storage / filename
+            if not filepath.exists():
+                continue
+            with self._get_conn() as conn:
+                exists = conn.execute(
+                    "SELECT COUNT(*) FROM strategies WHERE code_path LIKE ?",
+                    (f"%{filename}",),
+                ).fetchone()[0]
+                if exists:
+                    continue
+                sid = uuid.uuid4().hex[:12]
+                conn.execute(
+                    "INSERT INTO strategies (id, name, description, code_path, enabled, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                    (sid, name, desc, str(filepath), now, now),
+                )
+                conn.commit()
+                logger.info(f"内置策略已注册: {name} ({sid})")
+
     def _load_func(self, record: StrategyRecord):
         """加载并编译策略函数（带缓存）。"""
         code_hash = hashlib.md5(record.code.encode()).hexdigest()

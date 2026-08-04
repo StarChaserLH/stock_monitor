@@ -142,7 +142,9 @@ class NotificationManager:
         else:
             interval = self._min_interval
 
-        title_key = notification.title
+        # 用标题前缀做 key（去掉动态计数如 "(5买 18卖)"），避免每次计数变化导致匹配失败
+        import re
+        title_key = re.sub(r'\(\d+.*?\)', '', notification.title).strip()
         if title_key in self._title_timestamps:
             elapsed = (time.time() - self._title_timestamps[title_key]) / 60.0
             if elapsed < interval:
@@ -162,7 +164,7 @@ class NotificationManager:
             ok = notifier.send(notification)
             self._record_history(channel_key, notification, ok, "" if ok else "发送失败")
             if ok:
-                self._title_timestamps[title_key] = time.time()
+                self._title_timestamps[title_key] = time.time()  # title_key 已去掉动态计数
                 self._hourly_count.append(time.time())
             return ok
         except Exception as e:

@@ -85,7 +85,7 @@ templates:
 
   - id: dividend_grid
     name: 红利网格
-    description: 真实股息率 + 布林收口判断洗盘 + 月线方向判断趋势。三因子共振分级买入，股息率止盈退出。个股用自身股息率（<0.5%自动跳过），ETF 用 510880 红利ETF 历史基准。
+    description: 真实股息率 + 布林收口判断洗盘 + 月线方向判断趋势。三因子共振分级买入，股息率止盈退出。个股用自身股息率（<2.5%自动跳过），ETF 用 510880 红利ETF 历史基准。
     category: multi-factor
     difficulty: advanced
     source: data/strategies/dividend_grid.py
