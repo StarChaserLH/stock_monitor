@@ -675,13 +675,14 @@ class MonitorLoop:
         title = f"{prefix}交易信号: {symbol}[{name}]"
         action_color = "#dc2626" if result["action"] == "buy" else "#16a34a"
         suggestion = f"建议 {self._calc_buy_quantity(symbol, fill_price)} 份，买入后请在持仓管理记录" if result["action"] == "buy" else ""
+        suggestion_html = f'<p style="margin:4px 0;font-size:12px;color:#94a3b8">{suggestion}</p>' if suggestion else ""
         content = (
             f"<div style='font-family:system-ui,sans-serif;padding:8px 0'>"
             f"<p style='margin:0;font-size:16px;font-weight:700;color:{action_color}'>{action_cn}</p>"
             f"<p style='margin:6px 0 0;font-size:15px'>{symbol}[{name}]</p>"
             f"<p style='margin:2px 0;font-size:13px;color:#64748b'>策略: {strategy.name} · 当前价 {market_price:.4f} · {quantity} 份</p>"
             f"<p style='margin:4px 0;font-size:13px;color:#334155'>{result['reason']}</p>"
-            f"{'<p style=\"margin:4px 0;font-size:12px;color:#94a3b8\">' + suggestion + '</p>' if suggestion else ''}"
+            f"{suggestion_html}"
             f"<p style='margin:0;font-size:11px;color:#94a3b8'>强度: {result['strength']:.1f}</p>"
             f"</div>"
         )

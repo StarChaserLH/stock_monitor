@@ -180,10 +180,41 @@
         </div>
 
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-            <h3 class="text-sm font-semibold text-gray-700 mb-3">权益曲线</h3>
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">净值走势</h3>
             <div class="h-64"><canvas id="equityChart"></canvas></div>
+            <div class="h-24 mt-4"><canvas id="drawdownChart"></canvas></div>
         </div>
 
+        <!-- 期末持仓 -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200" x-show="result.final_positions?.length">
+            <div class="p-4 border-b border-gray-100">
+                <h3 class="text-sm font-semibold text-gray-700">期末持仓 <span class="text-gray-400 font-normal text-xs" x-text="'(' + result.final_positions.length + ' 只)'"></span></h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 text-gray-500">
+                        <tr><th class="text-left px-4 py-2">标的</th><th class="text-right px-4 py-2">股数</th><th class="text-right px-4 py-2">成本</th><th class="text-right px-4 py-2">现价</th><th class="text-right px-4 py-2">市值</th><th class="text-right px-4 py-2">盈亏</th></tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="p in result.final_positions" :key="p.symbol">
+                            <tr class="border-t border-gray-50">
+                                <td class="px-4 py-1.5 text-xs">
+                                    <span class="font-mono" x-text="p.symbol"></span>
+                                    <span class="text-gray-500 ml-1" x-text="'[' + symbolName(p.symbol) + ']'"></span>
+                                </td>
+                                <td class="px-4 py-1.5 text-right text-xs" x-text="p.shares"></td>
+                                <td class="px-4 py-1.5 text-right text-xs font-mono" x-text="p.avg_cost?.toFixed(3)"></td>
+                                <td class="px-4 py-1.5 text-right text-xs font-mono" x-text="p.price?.toFixed(3)"></td>
+                                <td class="px-4 py-1.5 text-right text-xs" x-text="p.market_value?.toLocaleString('zh', {minimumFractionDigits:2})"></td>
+                                <td class="px-4 py-1.5 text-right text-xs" :class="p.pnl >= 0 ? 'text-red-500' : 'text-green-500'" x-text="(p.pnl >= 0 ? '+' : '') + p.pnl?.toLocaleString('zh', {minimumFractionDigits:2})"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 交易记录 -->
         <div class="bg-white rounded-lg shadow-sm border border-gray-200">
             <div class="p-4 border-b border-gray-100">
                 <h3 class="text-sm font-semibold text-gray-700">交易记录 <span class="text-gray-400 font-normal text-xs" x-text="'(' + (result.trades?.length || 0) + ' 笔)'"></span></h3>
@@ -191,7 +222,7 @@
             <div class="overflow-x-auto max-h-80 overflow-y-auto">
                 <table class="w-full text-sm" x-show="result.trades?.length">
                     <thead class="bg-gray-50 text-gray-500 sticky top-0">
-                        <tr><th class="text-left px-4 py-2">日期</th><th class="text-left px-4 py-2">标的</th><th class="text-left px-4 py-2">方向</th><th class="text-right px-4 py-2">价格</th><th class="text-right px-4 py-2">数量</th></tr>
+                        <tr><th class="text-left px-4 py-2">日期</th><th class="text-left px-4 py-2">标的</th><th class="text-left px-4 py-2">方向</th><th class="text-right px-4 py-2">价格</th><th class="text-right px-4 py-2">成交</th><th class="text-right px-4 py-2">持仓</th><th class="text-left px-4 py-2">原因</th></tr>
                     </thead>
                     <tbody>
                         <template x-for="t in result.trades" :key="t.date + t.symbol + t.action + Math.random()">
@@ -204,6 +235,8 @@
                                 <td class="px-4 py-1.5"><span class="px-1.5 py-0.5 rounded text-xs" :class="t.action === 'buy' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'" x-text="t.action==='buy'?'买入':'卖出'"></span></td>
                                 <td class="px-4 py-1.5 text-right text-xs font-mono" x-text="t.price?.toFixed(3)"></td>
                                 <td class="px-4 py-1.5 text-right text-xs" x-text="t.quantity"></td>
+                                <td class="px-4 py-1.5 text-right text-xs text-gray-500" x-text="t.position_after"></td>
+                                <td class="px-4 py-1.5 text-xs text-gray-500 truncate max-w-[200px]" x-text="t.reason"></td>
                             </tr>
                         </template>
                     </tbody>
@@ -230,6 +263,7 @@ function backtestPage() {
         result: null,
         error: '',
         chart: null,
+        drawdownChart: null,
 
         get metricCards() {
             const m = this.result?.metrics;
@@ -374,10 +408,30 @@ function backtestPage() {
                 bsInfo[idx] = { symbol: t.symbol, price: t.price, action: t.action === 'buy' ? '买入' : '卖出' };
             });
 
+            // 持仓期底色：从 trades 推算每日是否有仓位
+            const holding = new Array(dates.length).fill(false);
+            let curPos = 0, ti = 0;
+            const sortedTrades = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+            for (let i = 0; i < dates.length; i++) {
+                while (ti < sortedTrades.length && sortedTrades[ti].date <= dates[i]) {
+                    const t = sortedTrades[ti];
+                    curPos += (t.action === 'buy' ? t.quantity : -t.quantity);
+                    ti++;
+                }
+                holding[i] = curPos > 0;
+            }
+            const holdingBg = holding.map((h, i) => h ? eq[i].value : null);
+
             const datasets = [{
+                label: '持仓期', data: holdingBg,
+                backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'transparent',
+                fill: true, pointRadius: 0, borderWidth: 0, tension: 0,
+                order: 1,
+            }, {
                 label: '权益', data: eq.map(e => e.value),
                 borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
                 fill: true, pointRadius: 0, borderWidth: 1.5, tension: 0.1,
+                order: 0,
             }];
             if (buyData.some(v => v != null)) {
                 datasets.push({
@@ -419,6 +473,41 @@ function backtestPage() {
                     scales: {
                         x: { ticks: { maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
                         y: { ticks: { font: { size: 10 }, callback: v => (v / 10000).toFixed(0) + '万' }, grid: { color: '#f1f5f9' } },
+                    },
+                },
+            });
+
+            // 回撤曲线
+            if (this.drawdownChart) this.drawdownChart.destroy();
+            const ddCtx = document.getElementById('drawdownChart');
+            if (!ddCtx) return;
+            const eqValues = eq.map(e => e.value);
+            let peak = eqValues[0];
+            const ddData = eqValues.map(v => {
+                if (v > peak) peak = v;
+                return ((v - peak) / peak * 100);
+            });
+            this.drawdownChart = new Chart(ddCtx, {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [{
+                        label: '回撤',
+                        data: ddData,
+                        borderColor: '#22c55e',
+                        backgroundColor: 'rgba(34,197,94,0.1)',
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 1,
+                        tension: 0.1,
+                    }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { font: { size: 9 }, callback: v => v.toFixed(0) + '%' }, grid: { color: '#f1f5f9' }, max: 0 },
                     },
                 },
             });
