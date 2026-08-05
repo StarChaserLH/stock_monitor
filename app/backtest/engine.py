@@ -40,7 +40,7 @@ class BacktestBroker:
         qty = int(target / price / 100) * 100
         return max(100, qty)
 
-    def buy(self, symbol: str, price: float, quantity: int, date: str) -> bool:
+    def buy(self, symbol: str, price: float, quantity: int, date: str, reason: str = "") -> bool:
         cost = price * quantity + 5
         if cost > self.cash or quantity <= 0:
             return False
@@ -51,22 +51,25 @@ class BacktestBroker:
         pos["avg_cost"] = total / pos["shares"] if pos["shares"] > 0 else price
         self.positions[symbol] = pos
         self.trades.append({"symbol": symbol, "action": "buy", "price": price,
-                            "quantity": quantity, "date": date})
+                            "quantity": quantity, "date": date,
+                            "position_after": pos["shares"], "reason": reason})
         return True
 
-    def sell(self, symbol: str, price: float, quantity: int, date: str) -> bool:
+    def sell(self, symbol: str, price: float, quantity: int, date: str, reason: str = "") -> bool:
         pos = self.positions.get(symbol)
         if not pos or pos["shares"] < quantity or quantity <= 0:
             return False
         revenue = price * quantity - 5
         self.cash += revenue
         pos["shares"] -= quantity
-        if pos["shares"] <= 0:
+        remaining = pos["shares"]
+        if remaining <= 0:
             del self.positions[symbol]
         else:
             self.positions[symbol] = pos
         self.trades.append({"symbol": symbol, "action": "sell", "price": price,
-                            "quantity": quantity, "date": date})
+                            "quantity": quantity, "date": date,
+                            "position_after": remaining, "reason": reason})
         return True
 
 class BacktestEngine:
@@ -218,13 +221,13 @@ class BacktestEngine:
                                 if result["strength"] < self._config.scheduler.min_signal_strength:
                                     continue
                         qty = broker.calc_quantity(sym, price)
-                        broker.buy(sym, price, qty, date_str)
+                        broker.buy(sym, price, qty, date_str, result.get("reason", ""))
 
                     elif result["action"] == "sell":
                         pos = broker.positions.get(sym)
                         if pos:
                             qty = broker.calc_quantity(sym, price)
-                            broker.sell(sym, price, min(qty, pos["shares"]), date_str)
+                            broker.sell(sym, price, min(qty, pos["shares"]), date_str, result.get("reason", ""))
 
                 except Exception as e:
                     logger.debug(f"回测策略异常 {sym} @ {date_str}: {e}")
@@ -243,7 +246,20 @@ class BacktestEngine:
                     f"最大回撤={metrics['max_drawdown']}%, "
                     f"夏普={metrics['sharpe_ratio']}, 交易={metrics['total_trades']}次")
 
-        return {"metrics": metrics, "equity": equity_curve, "trades": broker.trades}
+        # 期末持仓
+        final_positions = []
+        for sym, pos in broker.positions.items():
+            p = price_map.get(sym, 0)
+            mv = pos["shares"] * p
+            pnl = (p - pos["avg_cost"]) * pos["shares"] if pos["avg_cost"] > 0 else 0
+            final_positions.append({
+                "symbol": sym, "shares": pos["shares"], "avg_cost": round(pos["avg_cost"], 3),
+                "price": round(p, 3), "market_value": round(mv, 2),
+                "pnl": round(pnl, 2),
+            })
+
+        return {"metrics": metrics, "equity": equity_curve, "trades": broker.trades,
+                "final_positions": final_positions}
 
     def run_combined(
         self,
@@ -366,12 +382,12 @@ class BacktestEngine:
                             if result["strength"] < self._config.scheduler.min_signal_strength:
                                 continue
                     qty = broker.calc_quantity(sym, price)
-                    broker.buy(sym, price, qty, date_str)
+                    broker.buy(sym, price, qty, date_str, result.get("reason", ""))
                 elif result["action"] == "sell":
                     pos = broker.positions.get(sym)
                     if pos:
                         qty = broker.calc_quantity(sym, price)
-                        broker.sell(sym, price, min(qty, pos["shares"]), date_str)
+                        broker.sell(sym, price, min(qty, pos["shares"]), date_str, result.get("reason", ""))
 
             equity_curve.append({"date": date_str, "value": round(broker.equity(price_map), 2)})
 
@@ -379,7 +395,20 @@ class BacktestEngine:
         bm = self._benchmark_return(symbols, start_date, end_date)
         metrics["benchmark_return"] = round(bm * 100, 2)
         metrics["excess_return"] = round(metrics["total_return"] - metrics["benchmark_return"], 2)
-        return {"metrics": metrics, "equity": equity_curve, "trades": broker.trades}
+
+        final_positions = []
+        for sym, pos in broker.positions.items():
+            p = price_map.get(sym, 0)
+            mv = pos["shares"] * p
+            pnl = (p - pos["avg_cost"]) * pos["shares"] if pos["avg_cost"] > 0 else 0
+            final_positions.append({
+                "symbol": sym, "shares": pos["shares"], "avg_cost": round(pos["avg_cost"], 3),
+                "price": round(p, 3), "market_value": round(mv, 2),
+                "pnl": round(pnl, 2),
+            })
+
+        return {"metrics": metrics, "equity": equity_curve, "trades": broker.trades,
+                "final_positions": final_positions}
 
     def _force_kline_fetch(self, symbols: list[str], datalen: int) -> None:
         """若缓存已满足长度需求则跳过，否则重新拉取 K 线。"""
