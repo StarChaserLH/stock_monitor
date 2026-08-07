@@ -89,6 +89,28 @@ python run.py account      # 查看持仓盈亏
 ```bash
 python tests/test_previews.py  # 输出到 templates/email/
 ```
+
+### 进阶运行
+
+适用于Ubuntu环境下以www-data:www-data属组部署网站后端。注意install_depen.sh和start.sh需要增加执行权限。
+
+#### 规避包依赖冲突
+
+为避免pip包依赖冲突，增加脚本**install_depen.sh**，以 www-data:www-data 用户在pipenv环境下，安装包依赖。
+需要提前安装pipenv。脚本中涉及到的文件夹可能需要提前手动创建。
+
+### systemctl start stock-monitor
+
+在Ubuntu下改用systemd管理web服务，增加脚本**start.sh**及与之对应的**stock-monitor.service**范例。
+stock-monitor.service.sample需自行复制添加到目录/etc/systemd/system/下并激活。
+```
+cp stock-monitor.service.sample /etc/systemd/system/stock-monitor.service
+systemctl daemon-reload
+systemctl enable stock-monitor
+systemctl start stock-monitor
+```
+
+
 ## 系统架构
 
 ```
