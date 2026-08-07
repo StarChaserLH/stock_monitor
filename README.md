@@ -102,6 +102,12 @@ python tests/test_previews.py  # 输出到 templates/email/
 ### systemctl start stock-monitor
 
 在Ubuntu下改用systemd管理web服务，增加脚本**start.sh**及与之对应的**stock-monitor.service**范例。
+范例内以下路径需根据实际进行修改。
+```
+WorkingDirectory=/home/wwwroot/mypi4b.com/stock_monitor
+ExecStart=/home/wwwroot/mypi4b.com/stock_monitor/start.sh
+```
+
 stock-monitor.service.sample需自行复制添加到目录/etc/systemd/system/下并激活。
 ```
 cp stock-monitor.service.sample /etc/systemd/system/stock-monitor.service
