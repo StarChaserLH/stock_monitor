@@ -1,0 +1,27 @@
+[Unit]
+Description=Stock Monitor Python Service
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/home/wwwroot/mypi4b.com/stock_monitor
+ExecStart=/home/wwwroot/mypi4b.com/stock_monitor/start.sh
+# 关键：任何情况退出均重启
+Restart=always
+# 重启间隔3秒
+RestartSec=3
+# 放宽启动限流
+StartLimitInterval=120
+StartLimitBurst=30
+# 进程组完整回收
+KillMode=mixed
+TimeoutStopSec=10
+KillSignal=SIGINT
+FinalKillSignal=SIGKILL
+# 输出完整日志
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
